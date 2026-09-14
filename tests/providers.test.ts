@@ -155,6 +155,22 @@ describe('M2 acceptance - failover', () => {
     expect(result.failures.size).toBe(4);
     expect([...result.failures.values()].every((k) => k === 'rate_limited')).toBe(true);
   });
+
+  it('#23 a ticker Twelve Data fills after a Finnhub 429 carries Twelve Data’s prevClose', async () => {
+    // DEFECT-23: prevClose travels with the quote that supplied the price. A mixed poll
+    // must not pair one provider's price with the other's prior close.
+    const s = stub({
+      finnhub: (sym) => (sym === 'AAPL' ? res(200, { c: 266.03, pc: 262.5, t: 1_756_393_200 }) : res(429, {})),
+      twelvedata: () => res(200, { symbol: 'META', close: '751.10', previous_close: '748.25' }),
+    });
+    const result = await service({ fetchImpl: s.fetchImpl }).getQuotes(['AAPL', 'META']);
+
+    expect(symbolOf(s.td[0]!.url)).toBe('META');
+    const by = new Map(result.quotes.map((q) => [q.ticker, q]));
+    expect(by.get('AAPL')).toMatchObject({ provider: 'finnhub', price: 266.03, prevClose: 262.5 });
+    expect(by.get('META')).toMatchObject({ provider: 'twelvedata', price: 751.1, prevClose: 748.25 });
+    expect(result.failures.size).toBe(0);
+  });
 });
 
 describe('M2 - Finnhub adapter', () => {
@@ -210,6 +226,33 @@ describe('M2 - Finnhub adapter', () => {
     await finnhub(s.fetchImpl).getQuotes(['AAPL']);
     expect(s.fh[0]!.headers['X-Finnhub-Token']).toBe(KEYS.FINNHUB_API_KEY);
     expect(s.fh[0]!.url).not.toContain(KEYS.FINNHUB_API_KEY);
+  });
+
+  it('#19 pc becomes prevClose', async () => {
+    // DEFECT-23: M5's % change reads the provider's own previous close.
+    const s = stub({ finnhub: () => res(200, { c: 266.03, pc: 262.5, t: 1_756_393_200 }) });
+    const result = await finnhub(s.fetchImpl).getQuotes(['AAPL']);
+    expect(result.quotes[0]).toMatchObject({ ticker: 'AAPL', price: 266.03, prevClose: 262.5 });
+  });
+
+  it('#20 pc of 0, missing, negative or non-numeric is null, and the quote still succeeds', async () => {
+    // prevClose is optional data. Failing the quote over it would throw away a good
+    // price - and trigger a failover that spends Twelve Data credits (DEFECT-18) - to
+    // protect a % change. Finnhub zero-fills unknown fields, so pc=0 is "unknown".
+    const bodies: Record<string, unknown> = {
+      AAPL: { c: 266.03, pc: 0 },
+      META: { c: 751.1 },
+      GOOGL: { c: 180.2, pc: -5 },
+      MSFT: { c: 505.8, pc: '500.00' },
+      AMZN: { c: 230.4, pc: null },
+    };
+    const s = stub({ finnhub: (sym) => res(200, bodies[sym]) });
+    const result = await finnhub(s.fetchImpl).getQuotes(WATCHLIST);
+
+    expect(result.failures.size).toBe(0);
+    expect(result.quotes).toHaveLength(5);
+    expect(result.quotes.every((q) => q.prevClose === null)).toBe(true);
+    expect(s.fh).toHaveLength(5); // no retries spent on it either
   });
 });
 
@@ -280,6 +323,38 @@ describe('M2 - Twelve Data adapter', () => {
     const s = stub({ twelvedata: () => tdKeyed({ AAPL: '266.03' }) });
     const result = await td(s.fetchImpl).getQuotes(['AAPL']);
     expect(result.quotes[0]!.at).toBeNull();
+  });
+
+  it('#21 previous_close is a string parsed to a number; garbage is null and the quote still succeeds', async () => {
+    // DEFECT-23, in the DEFECT-04 class: previous_close arrives as a string like close.
+    // Unlike close, a bad one must not fail the ticker.
+    const s = stub({
+      twelvedata: () => res(200, {
+        AAPL: { symbol: 'AAPL', close: '266.03', previous_close: '262.50' },
+        META: { symbol: 'META', close: '751.10', previous_close: 'abc' },
+        GOOGL: { symbol: 'GOOGL', close: '180.20', previous_close: '0' },
+        MSFT: { symbol: 'MSFT', close: '505.80' },
+      }),
+    });
+    const result = await td(s.fetchImpl).getQuotes(['AAPL', 'META', 'GOOGL', 'MSFT']);
+
+    expect(result.failures.size).toBe(0);
+    expect(result.quotes).toHaveLength(4);
+    const by = new Map(result.quotes.map((q) => [q.ticker, q]));
+    expect(by.get('AAPL')!.prevClose).toBe(262.5);
+    expect(typeof by.get('AAPL')!.prevClose).toBe('number');
+    expect(by.get('META')).toMatchObject({ price: 751.1, prevClose: null });
+    expect(by.get('GOOGL')!.prevClose).toBeNull();
+    expect(by.get('MSFT')!.prevClose).toBeNull();
+    expect(s.td).toHaveLength(1); // and it is not retried
+  });
+
+  it('#22 previous_close is read from the single-symbol bare-object shape too', async () => {
+    const s = stub({
+      twelvedata: () => res(200, { symbol: 'AMZN', close: '231.40', previous_close: '229.15' }),
+    });
+    const result = await td(s.fetchImpl).getQuotes(['AMZN']);
+    expect(result.quotes[0]).toMatchObject({ ticker: 'AMZN', price: 231.4, prevClose: 229.15 });
   });
 });
 

@@ -87,12 +87,25 @@ function entriesBySymbol(body: Body, tickers: readonly string[]): Map<string, Bo
 }
 
 /** DEFECT-04's class again: Twelve Data sends prices as STRINGS. */
-function parsePrice(entry: Body): number | null {
-  const raw = entry['close'] ?? entry['price'];
+function parseNumeric(raw: unknown): number | null {
   if (typeof raw === 'number') return Number.isFinite(raw) ? raw : null;
   if (typeof raw !== 'string' || raw.trim() === '') return null;
   const n = Number(raw);
   return Number.isFinite(n) ? n : null;
+}
+
+function parsePrice(entry: Body): number | null {
+  return parseNumeric(entry['close'] ?? entry['price']);
+}
+
+/**
+ * DEFECT-23: `previous_close` is a string like `close`, so it is parsed the same way.
+ * Unlike the price it is optional data - garbage or <= 0 is null, never a failure, so
+ * a bad prior close cannot cost the ticker its price.
+ */
+function parsePrevClose(entry: Body): number | null {
+  const n = parseNumeric(entry['previous_close']);
+  return n !== null && n > 0 ? n : null;
 }
 
 function parseAt(entry: Body): Date | null {
@@ -180,7 +193,9 @@ export function createTwelveDataProvider(cfg: ProviderConfig): QuoteProvider {
           failures.set(ticker, price === null ? 'bad_response' : 'no_data');
           continue;
         }
-        quotes.push({ ticker, price, at: parseAt(entry), provider: 'twelvedata' });
+        quotes.push({
+          ticker, price, at: parseAt(entry), prevClose: parsePrevClose(entry), provider: 'twelvedata',
+        });
       }
 
       // Running out of credits is an account-wide fact. If any symbol reported it, the
