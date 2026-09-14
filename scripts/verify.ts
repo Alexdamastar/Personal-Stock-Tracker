@@ -16,6 +16,7 @@ import { seed, type Db } from '../src/db/seed.js';
 import { latestValuations, resolvedThresholds } from '../src/db/queries.js';
 import { rollupDailyBars } from '../src/db/rollup.js';
 import { applyDecision, loadRuleStates, runEvaluator } from '../src/db/alerts.js';
+import { loadDashboardData } from '../src/db/dashboard-data.js';
 
 const url = process.env.DATABASE_URL;
 if (!url) { console.error('DATABASE_URL is not set'); process.exit(1); }
@@ -211,6 +212,74 @@ check('a losing double-trigger is absorbed by ON CONFLICT, not thrown', lost ===
 
 await sql`delete from alert_events`;
 await sql`delete from price_ticks`;
+
+// ---- M5: the dashboard loader on the production driver. It mixes query-builder
+// reads with two raw db.execute() queries (rules + bars) that parse numerics,
+// epoch-ms timestamps and to_char dates by hand — the DEFECT-13 class again.
+console.log('\n--- M5 dashboard loader on the production driver ---');
+const [aapl] = await db.select().from(schema.securities)
+  .where(eq(schema.securities.ticker, 'AAPL'));
+await sql`delete from daily_bars`;
+await db.insert(schema.priceTicks).values([
+  { securityId: aapl!.id, price: 196.5, prevClose: 197.35, provider: 'verify',
+    capturedAt: new Date('2026-09-15T14:05:00Z'), quoteAt: new Date('2026-09-15T13:45:00Z') },
+  { securityId: aapl!.id, price: 194.8, prevClose: 197.35, provider: 'verify',
+    capturedAt: new Date('2026-09-15T14:10:00Z'), quoteAt: new Date('2026-09-15T13:50:00Z') },
+]);
+// 35 consecutive days, inserted newest first: only the loader's ORDER BY can make
+// them come back oldest first, and only its LIMIT can make them 30.
+const barDays = Array.from({ length: 35 }, (_, i) =>
+  new Date(Date.UTC(2026, 7, 1 + i)).toISOString().slice(0, 10));
+await db.insert(schema.dailyBars).values(
+  barDays.map((date, i) => ({ securityId: aapl!.id, date, close: 180 + i, tickCount: 1 })).reverse(),
+);
+await runEvaluator(db, { now: new Date('2026-09-15T14:10:00Z') }); // 194.8 <= safe 200 opens AAPL/safe
+
+const dash = await loadDashboardData(db);
+check('loadDashboardData returns the 5 active securities',
+  dash.securities.length === 5, `(got ${dash.securities.length})`);
+const thresholdsOk = EXPECTED.every((want) => {
+  const s = dash.securities.find((x) => x.ticker === want.ticker);
+  const buy = s?.rules.find((r) => r.kind === 'buy');
+  const safe = s?.rules.find((r) => r.kind === 'safe');
+  return buy?.threshold === want.buy && buy.pinned === false
+    && (safe?.threshold ?? null) === want.safe
+    && s?.avgCost === want.avgCost
+    && s?.valuations.pbt?.buyPrice === want.buy && s?.valuations.pbt?.stickerPrice === want.sticker;
+});
+check('thresholds, avg cost and PBT valuation match the §4 seed', thresholdsOk);
+
+const dAapl = dash.securities.find((s) => s.ticker === 'AAPL');
+const dTick = dAapl?.latestTick;
+check('latest tick: numerics are numbers, timestamps are valid Dates',
+  dTick?.price === 194.8 && dTick.prevClose === 197.35
+    && dTick.capturedAt instanceof Date && dTick.capturedAt.toISOString() === '2026-09-15T14:10:00.000Z'
+    && dTick.quoteAt instanceof Date && dTick.quoteAt.toISOString() === '2026-09-15T13:50:00.000Z',
+  `(${JSON.stringify(dTick)})`);
+
+const dAlert = dAapl?.rules.find((r) => r.kind === 'safe')?.openAlert;
+check('open alert (raw SQL): numerics parsed, triggeredAt a valid Date',
+  dAlert?.price === 194.8 && dAlert.threshold === 200 && typeof dAlert.eventId === 'number'
+    && dAlert.triggeredAt instanceof Date && dAlert.triggeredAt.toISOString() === '2026-09-15T14:10:00.000Z',
+  `(${JSON.stringify(dAlert)})`);
+
+const dBars = dAapl?.bars ?? [];
+check('bars (raw SQL): 30 most recent, oldest first, numeric close, YYYY-MM-DD date',
+  dBars.length === 30 && dBars[0]?.date === '2026-08-06' && dBars[0]?.close === 185
+    && dBars[29]?.date === '2026-09-04' && dBars[29]?.close === 214
+    && dBars.every((b, i) => i === 0 || dBars[i - 1]!.date < b.date),
+  `(n=${dBars.length} first=${JSON.stringify(dBars[0])} last=${JSON.stringify(dBars[29])})`);
+
+const amznInputs = dash.securities.find((s) => s.ticker === 'AMZN')?.valuations.pbt?.inputs;
+check('valuation asOf is a date string and jsonb inputs are an object',
+  dAapl?.valuations.pbt?.asOf === '2026-08-28'
+    && typeof amznInputs === 'object' && amznInputs !== null
+    && (amznInputs as { fcfPerShare?: unknown }).fcfPerShare === 14.2956,
+  `(asOf=${JSON.stringify(dAapl?.valuations.pbt?.asOf)} inputs=${typeof amznInputs})`);
+
+await sql`delete from alert_events`;
+await sql`delete from price_ticks`;
+await sql`delete from daily_bars`;
 
 await sql.end();
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : `${failures} CHECK(S) FAILED`}`);
