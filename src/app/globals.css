@@ -1,0 +1,87 @@
+@import 'tailwindcss';
+
+/*
+ * Design tokens. Three roles that must never be confused (spec M5):
+ *   accent    brand only: the title, links, focus rings
+ *   good/warn/critical   semantic state: chips, row emphasis, stale badge, demo banner
+ *   ink/muted/line       everything else
+ * Each *-ink is the text color to use on its *-tint; pairs are chosen for WCAG AA
+ * (4.5:1) in both schemes.
+ */
+:root {
+  --canvas: #f6f6f4;
+  --surface: #ffffff;
+  --ink: #1b1d22;
+  --muted: #5a5f6b;
+  --line: #d8dbe1;
+
+  --accent: #4338ca;
+
+  --good: #15803d;
+  --good-tint: #dcfce7;
+  --good-ink: #14532d;
+  --good-solid: #166534;
+  --on-good-solid: #ffffff;
+
+  --warn: #b45309;
+  --warn-tint: #fef3c7;
+  --warn-ink: #78350f;
+
+  --critical: #b91c1c;
+  --critical-tint: #fee2e2;
+  --critical-ink: #7f1d1d;
+
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --canvas: #0e1014;
+    --surface: #161920;
+    --ink: #e7e9ee;
+    --muted: #a0a6b2;
+    --line: #2c313b;
+
+    --accent: #a5b4fc;
+
+    --good: #4ade80;
+    --good-tint: #0f2a1a;
+    --good-ink: #86efac;
+    --good-solid: #4ade80;
+    --on-good-solid: #052e16;
+
+    --warn: #f59e0b;
+    --warn-tint: #33240a;
+    --warn-ink: #fcd34d;
+
+    --critical: #f87171;
+    --critical-tint: #3a1414;
+    --critical-ink: #fca5a5;
+  }
+}
+
+/* `inline` so utilities reference the variables and follow the dark-mode swap. */
+@theme inline {
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-accent: var(--accent);
+  --color-good: var(--good);
+  --color-good-tint: var(--good-tint);
+  --color-good-ink: var(--good-ink);
+  --color-good-solid: var(--good-solid);
+  --color-on-good-solid: var(--on-good-solid);
+  --color-warn: var(--warn);
+  --color-warn-tint: var(--warn-tint);
+  --color-warn-ink: var(--warn-ink);
+  --color-critical: var(--critical);
+  --color-critical-tint: var(--critical-tint);
+  --color-critical-ink: var(--critical-ink);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
