@@ -87,10 +87,19 @@ export const priceTicks = pgTable('price_ticks', {
   provider: text('provider').notNull(),
   capturedAt: timestamp('captured_at', { withTimezone: true }).notNull(),
   quoteAt: timestamp('quote_at', { withTimezone: true }),
+  /**
+   * DEFECT-23: M5 shows % change, which needs the prior session's close, and nothing
+   * stored it. Both providers return it (Finnhub `pc`, Twelve Data `previous_close`),
+   * so it is captured per tick rather than approximated from daily_bars, which are
+   * tick-derived and empty until a full day has been polled. Nullable: a provider
+   * may omit it, and ticks written before migration 0002 have none.
+   */
+  prevClose: money('prev_close'),
 }, (t) => [
   primaryKey({ columns: [t.securityId, t.capturedAt] }),
   index('price_ticks_recent_idx').on(t.securityId, t.capturedAt.desc()),
   check('price_ticks_positive_ck', sql`${t.price} > 0`),
+  check('price_ticks_prev_close_positive_ck', sql`${t.prevClose} is null or ${t.prevClose} > 0`),
 ]);
 
 /**

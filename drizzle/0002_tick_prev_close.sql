@@ -1,0 +1,2 @@
+ALTER TABLE "price_ticks" ADD COLUMN "prev_close" numeric(18, 4);--> statement-breakpoint
+ALTER TABLE "price_ticks" ADD CONSTRAINT "price_ticks_prev_close_positive_ck" CHECK ("price_ticks"."prev_close" is null or "price_ticks"."prev_close" > 0);

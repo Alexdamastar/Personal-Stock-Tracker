@@ -15,6 +15,13 @@
       "when": 1789355317862,
       "tag": "0001_alert_threshold",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1789357233227,
+      "tag": "0002_tick_prev_close",
+      "breakpoints": true
     }
   ]
 }
