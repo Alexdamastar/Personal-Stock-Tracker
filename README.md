@@ -14,7 +14,7 @@ crosses either the Payback Time buy price (D1) or a manually-set safe price (D3)
 | **M2 — quote provider layer** | **Complete.** 22 tests passing. See DEFECT-16..19 — four things the spec got wrong about the provider APIs. |
 | M3 — poller | Not started. See DEFECT-03 (cron is UTC) and DEFECT-14 (market calendar). |
 | **M4 — rule evaluator** | **Complete.** 29 tests passing. Adds migration 0001 (DEFECT-20) and fixes a float boundary in the spec's own formula (DEFECT-21). |
-| M5 — dashboard | Not started. See DEFECT-10 (sort key) and read `quote_at`, not `captured_at`, for the stale badge. |
+| **M5 — dashboard** | **Complete.** 167 tests, including the spec's acceptance criterion end to end. Next.js 16 app; runs a PGlite demo when `DATABASE_URL` is unset. |
 | M6 — history + manual edit | Not started. |
 
 `CLAUDE.md` is the working state — current milestone, live blockers, locked
@@ -26,7 +26,17 @@ spec, what was done about it, and what the later milestones must not repeat.
 ```bash
 npm install
 npm test                 # full suite — no database or container required
+npm run dev              # dashboard at http://localhost:3000 — DEMO data unless DATABASE_URL is set
+npm run build            # production build (webpack; see below)
 ```
+
+With `DATABASE_URL` unset, the app boots an in-process PGlite database, migrates and
+seeds it, and fills it with invented prices that show every chip state, under a
+DEMO banner. Page loads never call a quote provider in either mode: only the M3
+poller does, so dashboard traffic cannot spend API budget.
+
+Use the npm scripts rather than bare `next`: Turbopack cannot resolve the `.js`
+imports of `.ts` files this codebase uses, so the scripts select webpack.
 
 Tests run against **PGlite**, an in-process WASM Postgres, applying the same
 `drizzle/0000_init.sql` that ships to production. Nothing is mocked.
@@ -68,9 +78,17 @@ src/providers/http.ts        timeout, retry, concurrency cap, secret redaction
 src/providers/finnhub.ts     one call per symbol — there is no batch endpoint (DEFECT-16)
 src/providers/twelvedata.ts  batched; errors can arrive inside an HTTP 200 (DEFECT-17)
 src/providers/index.ts       env-driven selection + failover orchestrator
+src/lib/dashboard-types.ts   M5 contract between loader, view model and UI
+src/lib/dashboard.ts         buildDashboardRows: chip, distances, sort (DEFECT-10), pbtYears
+src/lib/market-hours.ts      NYSE sessions 2026-27, early closes, DST, isStale
+src/db/dashboard-data.ts     loadDashboardData: five queries for any number of securities
+src/db/app-db.ts             DATABASE_URL -> real database; unset -> PGlite demo
+src/db/demo.ts               demo ticks, bars and alerts; refreshed on each page load
+src/app/, src/components/   Next.js App Router page and presentational components
 drizzle/0000_init.sql  generated migration
 drizzle/0001_alert_threshold.sql  alert_events.threshold (DEFECT-20)
-tests/                 golden fixture, M1 acceptance, M2 providers, M4 evaluator, defect regressions
+drizzle/0002_tick_prev_close.sql  price_ticks.prev_close (DEFECT-23)
+tests/                 golden fixture, M1/M4/M5 acceptance, providers, calendar, dashboard, defect regressions
 ```
 
 ## Three things not to "fix"

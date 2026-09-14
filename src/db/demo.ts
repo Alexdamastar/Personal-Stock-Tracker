@@ -1,4 +1,4 @@
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, lt } from 'drizzle-orm';
 import { runEvaluator } from './alerts.js';
 import * as schema from './schema.js';
 import type { Db } from './seed.js';
@@ -166,4 +166,31 @@ export async function seedDemo(db: Db, now: Date = new Date()): Promise<{ seeded
   // show alert states the production code would actually produce.
   await runEvaluator(db, { now });
   return { seeded: true };
+}
+
+/**
+ * Re-stamps the demo ticks to `now` on every page load (user decision 2026-09-13).
+ *
+ * seedDemo writes once, so without this a demo left open during market hours shows
+ * the stale badge after 15 minutes and looks broken. Refreshing costs nothing: demo
+ * prices are invented here and never come from Finnhub or Twelve Data. Prices stay
+ * fixed, so every chip state stays on screen.
+ *
+ * The ticks are UPDATED in place, not appended, so a tab auto-refreshing every minute
+ * does not grow the in-memory database without bound. `captured_at < new` keeps the
+ * stamp monotonic when two requests race with slightly different clocks.
+ *
+ * Must not be pointed at a real database — see the module comment.
+ */
+export async function refreshDemo(db: Db, now: Date = new Date()): Promise<void> {
+  const capturedAt = new Date(now.getTime() - CAPTURED_BEFORE_NOW_MS);
+  const quoteAt = new Date(capturedAt.getTime() - QUOTE_DELAY_MS);
+  await db.update(schema.priceTicks)
+    .set({ capturedAt, quoteAt })
+    .where(and(
+      eq(schema.priceTicks.provider, DEMO_PROVIDER),
+      lt(schema.priceTicks.capturedAt, capturedAt),
+    ));
+  // Keeps the evaluator's 15-minute gate satisfied and the open alerts consistent.
+  await runEvaluator(db, { now });
 }

@@ -38,12 +38,12 @@ manual. That is a deliberate scope boundary, not an unfinished feature.
 | **M2 — quote provider layer** | **Complete.** 22 tests, injected `fetch`, no network. |
 | M3 — poller | **Next.** Blocked on API keys and a hosted database (see below). |
 | **M4 — rule evaluator** | **Complete.** 29 tests. Migration 0001 adds `alert_events.threshold`. **Not yet run on real Postgres.** |
-| M5 — dashboard | Not started. **There is no web app yet** — no Next.js, no React, no `src/app`. This is scaffolding, not a milestone. |
+| **M5 — dashboard** | **Complete.** 167 tests; spec acceptance passes end to end. Next.js 16 (webpack). PGlite demo when `DATABASE_URL` is unset. |
 | M6 — history + manual edit | Not started. |
 | Phase 2 (§6) | Blocked on §6.3 (below). |
 
-`npm test` → 104 passing. `npx tsc --noEmit` → clean. `npm audit` → 0 high, 0 critical
-(4 moderate, pre-existing).
+`npm test` → 271 passing. `npm run build` → passes. `npx tsc --noEmit` → clean. `npm audit` → 0 high, 0 critical
+(6 moderate, all dev tooling).
 
 ---
 
@@ -56,17 +56,17 @@ manual. That is a deliberate scope boundary, not an unfinished feature.
    Twelve Data key. Both are free signups. `.env.example` lists what is needed.
 2. **No hosted database.** Neon/Supabase has never been touched. Everything so far
    ran against PGlite and a throwaway Docker container.
-3. **Git exists, but most work is uncommitted.** Local repo on `master`, no remote. The
-   one commit ("Initial commmit", 2026-09-13) holds M1 + M2. **M4 is uncommitted**, so a
-   worktree or branch cut from `master` will not see it. Check `git status` before
-   branching; commit only when the user asks.
+3. **No remote.** Local git on `master`, nothing pushed anywhere. M4 and M5 are
+   committed. Check `git status` before branching (a worktree only sees what is
+   committed); commit only when the user asks.
 
 ### Known risks, already understood
 
-4. **M4 has never run on real Postgres.** Docker was down. `loadRuleStates` reads
-   through raw `db.execute()` (the DEFECT-13 class), so PGlite passing proves
-   nothing about postgres.js. `db:verify` now has five M4 checks; its logic was
-   dry-run on PGlite, not on the real driver. **Run it before starting M3.**
+4. **M4 and M5 have never run on real Postgres.** Docker was down both times.
+   `loadRuleStates` and `loadDashboardData` read through raw `db.execute()` (the
+   DEFECT-13 class), so PGlite passing proves nothing about postgres.js.
+   `db:verify` has 33 checks; their logic was dry-run on PGlite only.
+   **Run it before starting M3.**
 5. **The Neon HTTP driver is a third `db.execute()` result shape** after postgres.js
    and PGlite — the DEFECT-13 class of bug again, and the first real risk in M3.
    `src/db/rows.ts` normalizes the two known shapes; verify the third before trusting
@@ -81,17 +81,25 @@ manual. That is a deliberate scope boundary, not an unfinished feature.
 8. **Disabling a rule freezes its open alert** (DEFECT-22). The evaluator only
    reads enabled rules. M6's disable action must close the event in the same
    transaction.
-9. **`@nasdaq/market-calendar` does not exist** (DEFECT-14). `nyse-holidays` is the
-   closest real package and carries **no early closes**, which M3's acceptance
-   criterion requires. Expect to maintain a small explicit early-close table.
+9. **The market calendar ends 2027-12-31** (DEFECT-14, resolved). A tripwire test
+   starts failing on **2027-11-01**; add 2028 from nyse.com before then.
+10. **M3's writer has two obligations from M5:** persist `Quote.prevClose` to
+   `price_ticks.prev_close` (DEFECT-23), and round to 4 dp before the `> 0` check so
+   a tiny value becomes `no_data` rather than a failed insert (DEFECT-26).
+11. **Node 22.11 is below jsdom 30's floor.** A conditional vitest flag works around
+   it; upgrading Node (22.22+ or 24 LTS) removes the need.
 
 ### Open questions for the user
 
-10. **§6.3 — how `fcfRatio` is derived — is genuinely unresolved.** Five candidate
+12. **Close the NaN and zero-line holes in the schema?** (DEFECT-24, DEFECT-25, both
+   verified.) `'NaN'` passes every `> 0` CHECK, and `watch_rules.value` accepts 0
+   and negatives. Code defends today; a proposed migration 0003 would make the
+   database enforce it. Not applied without sign-off.
+13. **§6.3 — how `fcfRatio` is derived — is genuinely unresolved.** Five candidate
    definitions are ruled out arithmetically in `docs/DEFECTS.md`. Experiment 2 (pull
    the MSFT/AAPL panels) is unrun and gates the whole Phase 2 valuation engine.
    `fcfPerShare` stays a manual input until it settles.
-11. **SEC EDGAR requires `User-Agent: <name> <email>`** (Phase 2, §6.1). That means
+14. **SEC EDGAR requires `User-Agent: <name> <email>`** (Phase 2, §6.1). That means
    sending the user's email to an external service. **Needs explicit sign-off before
    any EDGAR call** — never assume it.
 
@@ -99,7 +107,7 @@ manual. That is a deliberate scope boundary, not an unfinished feature.
 
 ## Implementation decisions made with the user
 
-Asked, not assumed. Each has a test that fails if it is reversed.
+Asked, not assumed. The code-level ones each have a test that fails if reversed.
 
 | Date | Decision |
 |---|---|
@@ -108,6 +116,13 @@ Asked, not assumed. Each has a test that fails if it is reversed.
 | 2026-09-13 | `alert_events` gains a `threshold` column, migration 0001 (DEFECT-20). |
 | 2026-09-13 | An open alert is judged against the rule's **current** threshold, so moving the line can clear it. |
 | 2026-09-13 | Ticks older than **15 minutes** are not evaluated (same cutoff as the M5 stale badge). |
+| 2026-09-13 | % change uses the **provider's previous close**, stored per tick (migration 0002, DEFECT-23). |
+| 2026-09-13 | The state chip is **price-driven**; open alerts are a separate marker. |
+| 2026-09-13 | Below both lines, **`at buy price` wins** (resolves D3 vs M5's chip order). |
+| 2026-09-13 | pbtYearsAtPrice reads the **latest PBT valuation's inputs**, then the security's judgment inputs. |
+| 2026-09-13 | The stale badge reads **poll age** (`captured_at`); quote age is text. Corrects DEFECT-01. |
+| 2026-09-13 | With no `DATABASE_URL`, the app runs a **PGlite demo**, re-stamped on each page load (no API cost). |
+| 2026-09-13 | M5 built by **five agents in parallel**, one git worktree and branch each, merged by the orchestrator. |
 
 **When a high-level implementation choice comes up, ask. Don't assume** (user, 2026-09-13).
 
@@ -139,7 +154,7 @@ Each has a test that fails if "fixed". Long form in `README.md`.
 
 - **Append-only.** Valuations are never UPDATEd; a new one is inserted and the reads
   resolve the latest. `seed()` is idempotent and skips rather than overwrites.
-- **The database is the last line of defence.** Eight CHECK constraints and a partial
+- **The database is the last line of defence.** Nine CHECK constraints and a partial
   unique index (`alert_events ... WHERE cleared_at IS NULL`) enforce invariants that
   application code would otherwise be trusted with. Do not weaken them to make a test
   pass.
@@ -148,14 +163,19 @@ Each has a test that fails if "fixed". Long form in `README.md`.
 - **Alert timestamps are tick timestamps (`captured_at`), not the wall clock**, so a
   replay is deterministic.
 - **`quote_at` is the provider's timestamp and may be NULL. Never default it to
-  `now()`** (DEFECT-01). M5's stale badge reads it; defaulting makes stale data look
-  fresh, which is the exact failure it exists to catch. `captured_at` is the poll time
-  and is a different column for a reason.
+  `now()`** (DEFECT-01). It is shown as "quote 21m old"; defaulting it would make a
+  delayed quote look fresh. `captured_at` is the poll time, and it is what the stale
+  badge and M4's 15-minute gate read (corrected 2026-09-13).
 - **Timezone work is explicit `America/New_York`,** never the session's local zone.
   The developer is in Phoenix, which does not observe DST — a bug there would not
   reproduce locally.
 - **No new runtime dependency without a reason.** M2 added none: Node 18+ has global
-  `fetch`, and an HTTP client would be dead weight in a Cloudflare Worker.
+  `fetch`, and an HTTP client would be dead weight in a Cloudflare Worker. M5 added
+  Next.js, React and PGlite (now a runtime dependency, for demo mode).
+- **Page loads never call a quote provider.** Only the M3 poller does. The dashboard
+  reads the database, so traffic cannot spend API budget or reach a paid tier.
+- **The UI is presentational.** Components render `DashboardRow[]` and never fetch.
+  `src/lib/dashboard-types.ts` is the contract; change it deliberately.
 
 ## Working agreements
 
@@ -182,6 +202,18 @@ These came out of things that actually went wrong. Keep them.
 - **Re-applying the migration prints Postgres NOTICEs 42P06/42P07.** Those come from
   drizzle's own journal bookkeeping, exit code is 0, and they are not errors.
   `scripts/verify.ts` silences them; `scripts/migrate.ts` deliberately does not.
+- **Test timezones from PowerShell, not Git Bash.** Git Bash does not pass named `TZ`
+  values to Node, so `TZ=Asia/Tokyo npx vitest` silently runs in Phoenix time.
+  `$env:TZ='Asia/Tokyo'; npx vitest run` works.
+- **Build with the npm scripts** (`npm run dev` / `npm run build`). They select
+  webpack; Turbopack cannot resolve this codebase's `.js` imports of `.ts` files.
+- **An agent running `next dev` gets a managed block appended to this file.** Revert it.
+- **On Windows, stopping a backgrounded `next start` can leave `node.exe` on the port.**
+  Check `Get-NetTCPConnection -LocalPort <port>` and stop that PID.
+- **For parallel agents, use one `git worktree` per agent** with disjoint file
+  ownership and a contract written first. The harness's own worktree isolation
+  fails when the session started outside the repo, so create them with
+  `git worktree add` and give each agent its absolute path.
 - **No API key is ever committed, logged, or included in an error message.** Finnhub's
   key goes in the `X-Finnhub-Token` header; Twelve Data's has to ride in the query
   string, so `redact()` strips query strings from any URL in an error and removes the
@@ -192,10 +224,12 @@ These came out of things that actually went wrong. Keep them.
 ## Commands
 
 ```bash
-npm test                 # 104 tests, no database or container required
+npm test                 # 271 tests, no database or container required
+npm run dev              # dashboard on :3000 — DEMO data unless DATABASE_URL is set
+npm run build            # production build (webpack)
 npx tsc --noEmit         # strict + noUncheckedIndexedAccess
 npm run db:generate      # regenerate the migration from schema.ts
 npm run db:migrate       # apply migrations   (needs DATABASE_URL)
 npm run db:seed          # idempotent §4 seed (needs DATABASE_URL)
-npm run db:verify        # 27 acceptance checks on real Postgres — scratch DB only
+npm run db:verify        # 33 acceptance checks on real Postgres — scratch DB only
 ```

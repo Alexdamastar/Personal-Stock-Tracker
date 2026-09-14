@@ -7,8 +7,9 @@ import { freshDb, schema } from './harness.js';
 import { seed, type Db } from '../src/db/seed.js';
 import { resolvedThresholds } from '../src/db/queries.js';
 import { loadDashboardData } from '../src/db/dashboard-data.js';
-import { DEMO_BAR_COUNT, demoBarDates, seedDemo } from '../src/db/demo.js';
+import { DEMO_BAR_COUNT, demoBarDates, refreshDemo, seedDemo } from '../src/db/demo.js';
 import type { SecurityData } from '../src/lib/dashboard-types.js';
+import { isStale } from '../src/lib/market-hours.js';
 
 // ---------------------------------------------------------------------------------
 // loadDashboardData against the real migration (PGlite)
@@ -375,6 +376,57 @@ describe('M5 — seedDemo', () => {
     expect(await seedDemo(db, new Date(NOW.getTime() + 5 * 60 * 1000))).toEqual({ seeded: false });
     expect(await count()).toEqual(before);
     expect(before).toMatchObject({ ticks: 5, bars: 150 });
+  });
+});
+
+// ---------------------------------------------------------------------------------
+// refreshDemo — page-load refresh (user decision 2026-09-13)
+// ---------------------------------------------------------------------------------
+
+describe('M5 — refreshDemo', () => {
+  // Tuesday 11:00 ET; two hours later is still mid-session.
+  const BOOT = new Date('2026-09-15T15:00:00Z');
+  const LATER = new Date('2026-09-15T17:00:00Z');
+  let db: Db;
+  let close: () => Promise<void>;
+  beforeEach(async () => { ({ db, close } = await freshDb()); await seed(db); await seedDemo(db, BOOT); });
+  afterEach(async () => { await close(); });
+
+  it('re-stamps every demo tick to just before the new now, so an open demo tab never goes stale', async () => {
+    await refreshDemo(db, LATER);
+    const ticks = await db.select().from(schema.priceTicks);
+    expect(ticks).toHaveLength(5); // updated in place, not appended
+    for (const t of ticks) {
+      expect(t.capturedAt.toISOString()).toBe('2026-09-15T16:59:00.000Z');
+      expect(t.quoteAt!.toISOString()).toBe('2026-09-15T16:39:00.000Z');
+      expect(isStale(t.capturedAt, LATER)).toBe(false);
+    }
+  });
+
+  it('keeps prices fixed, so every chip state stays on screen', async () => {
+    const before = (await db.select().from(schema.priceTicks)).map((t) => [t.securityId, t.price]).sort();
+    await refreshDemo(db, LATER);
+    const after = (await db.select().from(schema.priceTicks)).map((t) => [t.securityId, t.price]).sort();
+    expect(after).toEqual(before);
+  });
+
+  it('never moves a stamp backwards when requests race with older clocks', async () => {
+    await refreshDemo(db, LATER);
+    await refreshDemo(db, BOOT);
+    const [t] = await db.select().from(schema.priceTicks);
+    expect(t!.capturedAt.toISOString()).toBe('2026-09-15T16:59:00.000Z');
+  });
+
+  it('leaves a non-demo tick alone', async () => {
+    const [aapl] = await db.select().from(schema.securities).where(eq(schema.securities.ticker, 'AAPL'));
+    const real = new Date('2026-09-15T14:00:00Z');
+    await db.insert(schema.priceTicks).values({
+      securityId: aapl!.id, price: 190, provider: 'finnhub', capturedAt: real, quoteAt: null,
+    });
+    await refreshDemo(db, LATER);
+    const [kept] = await db.select().from(schema.priceTicks)
+      .where(eq(schema.priceTicks.provider, 'finnhub'));
+    expect(kept!.capturedAt.toISOString()).toBe(real.toISOString());
   });
 });
 

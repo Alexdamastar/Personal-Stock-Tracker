@@ -3,6 +3,7 @@ import { DashboardTable } from '../components/DashboardTable.js';
 import { DemoBanner } from '../components/DemoBanner.js';
 import { getAppDb } from '../db/app-db.js';
 import { loadDashboardData } from '../db/dashboard-data.js';
+import { refreshDemo } from '../db/demo.js';
 import { buildDashboardRows } from '../lib/dashboard.js';
 import { isStale } from '../lib/market-hours.js';
 
@@ -19,10 +20,14 @@ const renderedAt = new Intl.DateTimeFormat('en-US', {
 });
 
 export default async function DashboardPage() {
-  const { db, mode } = await getAppDb();
-  const data = await loadDashboardData(db);
   // One `now` for the whole render, so every row's staleness and quote age agree.
   const now = new Date();
+  const { db, mode } = await getAppDb();
+  // Demo only: re-stamp the invented ticks so an open demo tab never goes stale. This
+  // makes no provider call. In database mode page loads only read, and the M3 poller
+  // is the sole caller of Finnhub / Twelve Data, so traffic cannot spend API budget.
+  if (mode === 'demo') await refreshDemo(db, now);
+  const data = await loadDashboardData(db);
   const rows = buildDashboardRows(data, now, { isStale });
 
   return (

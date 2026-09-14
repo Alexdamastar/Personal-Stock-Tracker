@@ -27,8 +27,10 @@ poll after the first raises a duplicate-key error, and the Phase 1 exit gate
 **Fix.** Two distinct columns with distinct meanings:
 - `captured_at` — poll wall-clock. Unique per poll, so the PK holds. Proves the
   poller ran.
-- `quote_at` — the provider's own timestamp. Nullable. **This is the column the
-  M5 stale badge must read**; `captured_at` says nothing about data freshness.
+- `quote_at` — the provider's own timestamp. Nullable. ~~This is the column the
+  M5 stale badge must read~~ — **corrected in M5:** the badge reads `captured_at`
+  (poll age) and `quote_at` is shown as text. See "DEFECT-01 correction" under
+  FIXED in M5.
 
 Guarded by `tests/defects.test.ts` → *DEFECT-01*.
 
@@ -291,7 +293,98 @@ of a dollar (the `numeric(18,4)` scale the database stores) and compares
 parameterised tests pin the seeded boundaries, plus one that documents the IEEE-754
 fact itself, so a failure there means the platform changed rather than the code.
 
+## FIXED in M5
+
+M5 was built by five agents in parallel, each on its own git worktree and branch,
+against a contract written first (`src/lib/dashboard-types.ts`). Seven implementation
+decisions were put to the user rather than assumed; they are recorded in `CLAUDE.md`.
+
+### DEFECT-23 — % change needs a previous close, and nothing stored one
+**Severity: medium.**
+
+§5 M5 asks for "% change" per row. `price_ticks` stored only the price, and the M2
+`Quote` carried only `{ ticker, price, at }`. The alternative — deriving it from
+`daily_bars` — gives a tick-derived close, not the official one, and nothing at all
+until the poller has run a full day.
+
+**Fixed in M5** (user decision 2026-09-13). Both providers already return the prior
+close (Finnhub `pc`, Twelve Data `previous_close`, a string). Migration
+`0002_tick_prev_close.sql` adds nullable `price_ticks.prev_close` with
+`price_ticks_prev_close_positive_ck`; `Quote.prevClose` carries it. A missing or
+invalid prev close is `null` and never fails a quote or triggers failover.
+**M3's writer must persist it** — nothing writes the column yet.
+
+### DEFECT-21, second form — the float boundary also breaks on division
+M4 fixed `threshold * 1.005`. M5's "approaching (within 10%)" has the same bug in
+the other direction:
+
+```
+(925.947 - 841.77) / 841.77  ===  0.10000000000000003
+```
+
+so META exactly 10% above its buy line would read `watching`. `src/lib/dashboard.ts`
+cross-multiplies in integer ten-thousandths, and computes distances from integer
+units so equal ratios tie exactly in the sort.
+
+### DEFECT-01 correction — the stale badge reads POLL age, not quote age
+DEFECT-01 said the M5 stale badge "must read" `quote_at`. That was wrong: quotes are
+15–20 min delayed by design (D6), Twelve Data about 4 hours, and the badge fires at
+15 minutes, so a `quote_at` badge would be lit all day every trading day.
+
+**Decision (user, 2026-09-13):** the badge fires when the newest **poll**
+(`captured_at`) is over 15 minutes old during market hours — the poller stopped, or
+the provider is failing. That matches M4's evaluator gate. The quote's own age is
+always shown as text ("quote 21m old"). `isStale()` in `src/lib/market-hours.ts`
+also allows a grace period after the open, so yesterday's last tick doesn't show
+stale the moment the bell rings. The DEFECT-01 entry above is annotated.
+
+### DEFECT-14 resolved — the early-close table exists
+`src/lib/market-hours.ts` holds explicit NYSE full-day holidays and 13:00 ET early
+closes for 2026 and 2027, each checked against nyse.com's published calendar
+(https://www.nyse.com/markets/hours-calendars, checked 2026-09-13). No package. A date
+outside the table throws, and a tripwire test fails from **2027-11-01** so the table
+is extended before it can crash anything. NYSE has already published 2028.
+
+## OPEN — needs a user decision
+
+### DEFECT-24 — `'NaN'` passes every "must be positive" CHECK
+**Severity: medium. Verified, not inferred.**
+
+Postgres `numeric` accepts `'NaN'`, and Postgres orders NaN above every number, so
+`'NaN'::numeric > 0` is **true**. Every `> 0` CHECK in the schema lets it through:
+`price_ticks.price`, `price_ticks.prev_close`, `valuations.buy_price` /
+`sticker_price`, and `alert_events.price` / `threshold`. Read back through Drizzle it
+becomes a JS `NaN`.
+
+Confirmed against PGlite (real Postgres compiled to WASM, same numeric semantics) on
+2026-09-13: all four inserts were accepted.
+
+Today's code already defends: M2 rejects non-finite prices, and `evaluate()` and the
+view model treat a non-finite value as "no value". The realistic entry points are
+manual SQL and M6's edit form. **Proposed fix:** migration 0003 adding
+`and <col> <> 'NaN'` to each positive CHECK (in Postgres `'NaN' = 'NaN'` is true, so
+the inequality works). Not applied: it is a schema change.
+
+### DEFECT-25 — `watch_rules.value` has no positivity CHECK
+**Severity: medium for M6. Verified.**
+
+Every other money column is constrained `> 0`; `watch_rules.value` is not. A pinned
+buy of 0 and a safe price of -5 were both accepted. A zero line divides by zero in
+the dashboard's distance and sort key; the view model skips non-positive thresholds,
+but the database does not stop them. M6's form is where a user would type one.
+**Proposed fix:** fold into migration 0003:
+`value is null or (value > 0 and value <> 'NaN')`.
+
 ## DEFERRED to the milestone that owns them
+
+### DEFECT-26 — a tiny positive price rounds to zero and fails the insert (M3)
+**Severity: low.**
+
+Money columns are `numeric(18,4)` and must be `> 0`. A provider value such as
+`0.00004` passes the code's `> 0` check, rounds to `0.0000` on insert, and violates
+the CHECK, so the whole insert throws. Applies to `price` and `prev_close`. Not
+realistic for today's watchlist. **M3's writer** should round to 4 dp before
+validating, and treat a value that rounds to zero as `no_data`.
 
 ### DEFECT-03 — Cloudflare Cron Triggers are UTC-only; the ET window moves (M3)
 **Severity: high for M3.**
@@ -381,6 +474,8 @@ Worse, `nyse-holidays` — the closest real package — covers **holidays only**
 does not carry **early closes** (July 3, the day after Thanksgiving, Christmas
 Eve), which M3's acceptance criterion explicitly requires.
 
+**Resolved in M5:** `src/lib/market-hours.ts` holds the table (see FIXED in M5).
+
 **Required fix in M3.** Expect to maintain a small explicit early-close table
 regardless of which library is chosen. Verify the package resolves before
 depending on it.
@@ -444,6 +539,16 @@ date is `2026-08-28`. Cosmetic, but §9 is the section whose entire value is
 "everything below was checked, not assumed" — a date that cannot be right
 undermines the section that most depends on being trusted. Re-date to the actual
 check date.
+
+### AMENDMENT-E — D3 and M5 disagree on the strongest chip state
+Locked decision D3 says crossing the safe price is "the strongest visual state". §5 M5
+orders the chips `watching → approaching → at safe price → at buy price`, with buy
+last. For AAPL, MSFT and AMZN the buy line sits below the safe line, so both are
+crossed whenever price is below the buy line, and the two texts pick different chips.
+
+**Decision (user, 2026-09-13):** below both lines, **`at buy price` wins** and gets the
+strongest emphasis. D3's phrase should be read as "stronger than approaching". Guarded
+by the `at_buy` precedence tests in `tests/dashboard.test.ts`.
 
 ---
 
@@ -565,3 +670,59 @@ and PGlite cannot prove the postgres.js side.
 What *was* done: the verifier's logic was dry-run against PGlite through a temporary
 driver shim (since deleted), and all 27 checks passed. That validates the script's
 sequencing and literals, not the driver. **Run the real verifier before M3.**
+
+### M5 — 2026-09-13
+
+| | |
+|---|---|
+| Suite | **271 passing** (104 prior + 167 M5), 10 files |
+| Typecheck | clean, strict + `noUncheckedIndexedAccess` |
+| Build | `npm run build` passes; `/` is dynamic (server-rendered per request) |
+| Schema | migration `0002_tick_prev_close.sql`; `drizzle-kit generate` reports no drift |
+| Advisories | 0 high, 0 critical, 6 moderate (2 new ones are in vitest itself, dev-only) |
+
+**How it was built.** Groundwork commit `163dfae` installed dependencies, added
+migration 0002, and wrote the contract plus stubs. Five agents then worked in
+parallel on `m5/a`–`m5/e`, each in its own `git worktree`, owning disjoint files; no
+file was touched by more than one branch and all five merged without conflict.
+
+| Branch | Tests | Owns |
+|---|---|---|
+| a-provider-prevclose | 5 | `Quote.prevClose` from Finnhub `pc` / Twelve Data `previous_close` |
+| b-market-hours | 55 | NYSE calendar 2026–27, DST, `isStale`, M3's gate acceptance test |
+| c-view-model | 51 | `buildDashboardRows`: chip, distances, sort, pbtYears |
+| d-loader-demo | 22 (+4 at merge) | `loadDashboardData` (5 queries, any N), `getAppDb`, PGlite demo |
+| e-ui | 28 | Next.js 16 app, table, chip, sparkline, auto-refresh |
+
+**Integration, done after the merge:**
+- `tests/m5-acceptance.test.tsx` — the spec's criterion **end to end**: seeded database
+  → loader → view model → `renderToStaticMarkup`, and the AAPL row renders
+  "at safe price" and sorts first. Each layer had only ever run against stubs of the
+  others; this is the first test where they meet. A second test runs `page.tsx`'s exact
+  sequence in demo mode and finds all four chip states.
+- `refreshDemo()` re-stamps demo ticks on each page load (user decision 2026-09-13);
+  mutation-checked: making it a no-op fails 3 tests.
+- The production server (`next start`, demo mode) was run and fetched: HTTP 200, all
+  four chips, three open alerts, rows AMZN/AAPL/MSFT/GOOGL/META, "quote 21m old".
+  Screenshots taken in light and dark.
+- DEFECT-24 and DEFECT-25 were verified against PGlite before being filed.
+
+**Build notes for whoever runs this next:**
+1. **Use `npm run build` / `npm run dev`, not bare `npx next build`.** Turbopack (Next
+   16's default) cannot resolve this codebase's `.js` imports of `.ts` files, so the
+   scripts pass `--webpack`, where `resolve.extensionAlias` handles it.
+2. **Node 22.11 is below jsdom 30's floor (22.22.2).** `vitest.config.ts` passes
+   `--experimental-require-module` to test workers only when Node lacks
+   `require(esm)`. Upgrading Node makes that a no-op.
+3. **Git Bash does not pass named `TZ` values to Node.** `TZ=Asia/Tokyo npx vitest`
+   silently runs in the machine's zone; only `TZ=UTC` gets through. Run timezone
+   proofs from PowerShell (`$env:TZ='Asia/Tokyo'`).
+4. **`next dev`, run by an agent, appends a managed block to `CLAUDE.md`.** Revert it.
+5. **Stopping a backgrounded `next start` on Windows can leave its `node.exe` holding
+   the port.** Check with `Get-NetTCPConnection -LocalPort <port>`.
+6. **The harness's built-in worktree isolation is unavailable** from a session started
+   outside the repo; the worktrees were created manually with `git worktree add`.
+
+**Still not verified:** `npm run db:verify` (33 checks: M4's 5 and M5's 6 new) has
+never run on real Postgres. Its logic was dry-run on PGlite. Database mode of
+`getAppDb()` has no test, because it needs a live database.
