@@ -21,6 +21,16 @@ export const FINNHUB_CALLS_PER_MINUTE = 60;
 interface FinnhubQuoteBody {
   c?: unknown; // current price
   t?: unknown; // UNIX seconds
+  pc?: unknown; // previous close
+}
+
+/**
+ * DEFECT-23: `pc` is optional data. Finnhub zero-fills fields it has no value for (as
+ * with `c` and `t`), so 0 means "unknown", not a close of $0. Anything that is not a
+ * finite positive number becomes null; it must never fail the quote.
+ */
+function parsePrevClose(pc: unknown): number | null {
+  return typeof pc === 'number' && Number.isFinite(pc) && pc > 0 ? pc : null;
 }
 
 export function createFinnhubProvider(cfg: ProviderConfig): QuoteProvider {
@@ -71,7 +81,10 @@ export function createFinnhubProvider(cfg: ProviderConfig): QuoteProvider {
     // `t` is UNIX SECONDS, not ms. t=0 means "no timestamp", not the epoch (DEFECT-01).
     const at = typeof t === 'number' && Number.isFinite(t) && t > 0 ? new Date(t * 1000) : null;
 
-    return { ok: true, value: { ticker, price, at, provider: 'finnhub' } };
+    return {
+      ok: true,
+      value: { ticker, price, at, prevClose: parsePrevClose(body.pc), provider: 'finnhub' },
+    };
   }
 
   return {

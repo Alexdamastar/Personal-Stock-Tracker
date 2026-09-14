@@ -19,6 +19,17 @@ export interface Quote {
    * stale data look fresh, which is the exact failure quote_at exists to prevent.
    */
   at: Date | null;
+  /**
+   * The PROVIDER's previous session close, or null when it was missing or unusable.
+   *
+   * DEFECT-23: M5's % change needs the prior close and nothing stored it. The user
+   * chose (2026-09-13) to take the provider's own value rather than derive one from
+   * daily_bars; M3 persists it to the nullable `price_ticks.prev_close`. It is
+   * OPTIONAL data: a bad prevClose is null, never a failed quote and never a reason
+   * to fail over — losing a good price to protect a % change would be backwards.
+   * Always null or > 0, matching price_ticks_prev_close_positive_ck.
+   */
+  prevClose: number | null;
   /** Provider name, stored per-row in `price_ticks.provider`. */
   provider: string;
 }
