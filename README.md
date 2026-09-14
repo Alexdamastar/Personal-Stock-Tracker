@@ -1,0 +1,110 @@
+# Rule #1 Watchlist — M1 + M2
+
+Schema, seed, the §3.2 valuation math, and the quote provider layer.
+Phase 1 milestones M1 and M2 of the build spec.
+
+Monitors live prices for a small watchlist and highlights a ticker when price
+crosses either the Payback Time buy price (D1) or a manually-set safe price (D3).
+
+## Status
+
+| Milestone | State |
+|---|---|
+| **M1 — schema + seed** | **Complete.** 53 tests passing; verified on PostgreSQL 18.6. |
+| **M2 — quote provider layer** | **Complete.** 22 tests passing. See DEFECT-16..19 — four things the spec got wrong about the provider APIs. |
+| M3 — poller | Not started. See DEFECT-03 (cron is UTC) and DEFECT-14 (market calendar). |
+| M4 — rule evaluator | Not started. Invariant is enforced in the schema already (DEFECT-02). |
+| M5 — dashboard | Not started. See DEFECT-10 (sort key) and read `quote_at`, not `captured_at`, for the stale badge. |
+| M6 — history + manual edit | Not started. |
+
+`CLAUDE.md` is the working state — current milestone, live blockers, locked
+decisions, and the traps. `docs/DEFECTS.md` records every defect found in the
+spec, what was done about it, and what the later milestones must not repeat.
+
+## Quick start
+
+```bash
+npm install
+npm test                 # full suite — no database or container required
+```
+
+Tests run against **PGlite**, an in-process WASM Postgres, applying the same
+`drizzle/0000_init.sql` that ships to production. Nothing is mocked.
+
+Against a real database:
+
+```bash
+export DATABASE_URL='postgres://user:pass@host/db'
+npm run db:migrate
+npm run db:seed
+npm run db:verify     # 22 acceptance checks; use a scratch database
+```
+
+`db:verify` is the one that covers what PGlite cannot: the `postgres.js`
+driver, the server's own tzdata, and the constraints as the real planner
+enforces them. It writes and deletes rows in `price_ticks` and `daily_bars`,
+so do not point it at a database holding real tick history. A throwaway
+server is enough:
+
+```bash
+docker run -d --name r1w -p 55432:5432 -e POSTGRES_PASSWORD=verify -e POSTGRES_DB=rule1 postgres:18-alpine
+DATABASE_URL='postgres://postgres:verify@127.0.0.1:55432/rule1' npm run db:verify
+```
+
+## Layout
+
+```
+src/lib/valuation.ts   §3.2 pure math — tenCap, marginOfSafety, paybackTime, pbtYearsAt
+src/db/schema.ts       Drizzle schema (§4, with the DEFECTS.md fixes applied)
+src/db/seed-data.ts    the §4 seed table, verbatim
+src/db/seed.ts         idempotent seeder; never UPDATEs a valuation
+src/db/queries.ts      latestValuations, resolvedThresholds (append-only read patterns)
+src/db/rollup.ts       daily_bars writer, bucketed in America/New_York
+src/db/rows.ts         driver-agnostic result normalizer (DEFECT-13)
+src/providers/types.ts       QuoteProvider, Quote, the failure taxonomy (DEFECT-08)
+src/providers/http.ts        timeout, retry, concurrency cap, secret redaction
+src/providers/finnhub.ts     one call per symbol — there is no batch endpoint (DEFECT-16)
+src/providers/twelvedata.ts  batched; errors can arrive inside an HTTP 200 (DEFECT-17)
+src/providers/index.ts       env-driven selection + failover orchestrator
+drizzle/0000_init.sql  generated migration
+tests/                 golden fixture, M1 acceptance, M2 providers, defect regressions
+```
+
+## Three things not to "fix"
+
+1. **Two different share counts are in play (§3.4).** 10 Cap uses the cover-page
+   count (10,754.252M); `epsTtm` is already per diluted weighted-average share
+   (~10,845M). Normalizing them breaks the 10 Cap fixture. There is a test that
+   fails if you try.
+
+2. **The 2× between a price and its sticker is an artifact of `mosPct = 0.50`,
+   not a formula (§3.3).** Always `price / (1 - mosPct)`. Which side is primary
+   differs by method — MOS derives its price from its sticker, 10 Cap and PBT
+   derive their sticker from their price.
+
+3. **`fcfPerShare` is a manual input and stays that way.** §6.3 is genuinely
+   unresolved; five candidate definitions are ruled out arithmetically in
+   `docs/DEFECTS.md`. Do not let the engine compute it until the panel comparison
+   settles the question.
+
+## Environment
+
+```
+DATABASE_URL=            # Postgres connection string (Neon or Supabase free tier)
+QUOTE_PROVIDERS=         # failover order, default "finnhub,twelvedata"
+FINNHUB_API_KEY=
+TWELVE_DATA_API_KEY=
+QUOTE_TIMEOUT_MS=        # optional, default 5000
+```
+
+A provider named in `QUOTE_PROVIDERS` with no key throws at construction rather
+than being skipped — silently dropping the primary looks exactly like a healthy
+system until the fallback's budget runs out mid-session.
+
+The M2 suite injects a fake `fetch`, so it needs no keys and touches no network.
+A live smoke test against real keys is deliberately not part of `npm test`: it
+spends real budget and would fail the build on a provider outage.
+
+Note for M3: Cloudflare Workers cannot open a raw TCP socket to Postgres. The
+Worker must either call `/api/poll` over HTTP or use Neon's HTTP driver — the
+postgres.js client in `src/db/client.ts` will not run inside a Worker.
