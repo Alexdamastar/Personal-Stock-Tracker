@@ -25,6 +25,20 @@ export async function latestValuations(db: Db) {
 }
 
 /**
+ * D1 in one place. Joins `lv.buy_price` — the latest PBT buy price — onto a
+ * `watch_rules r`. Both `resolvedThresholds` and the M4 evaluator use it, so the
+ * dashboard and the alerts can never disagree about what a buy rule's threshold is.
+ */
+export const latestPbtBuyJoin = sql`
+      left join lateral (
+            select v.buy_price
+              from valuations v
+             where v.security_id = r.security_id and v.method = 'pbt'
+             order by v.as_of desc, v.id desc
+             limit 1
+      ) lv on r.kind = 'buy'`;
+
+/**
  * Resolve every enabled rule to a concrete threshold.
  *
  * D1/§4: kind='buy' with value IS NULL follows the latest PBT buy price. A
@@ -41,13 +55,7 @@ export async function resolvedThresholds(db: Db) {
            (r.value is not null)           as pinned
       from watch_rules r
       join securities s on s.id = r.security_id
-      left join lateral (
-            select v.buy_price
-              from valuations v
-             where v.security_id = r.security_id and v.method = 'pbt'
-             order by v.as_of desc, v.id desc
-             limit 1
-      ) lv on r.kind = 'buy'
+      ${latestPbtBuyJoin}
      where r.enabled
      order by s.ticker, r.kind
   `);

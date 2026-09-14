@@ -15,6 +15,7 @@ import * as schema from '../src/db/schema.js';
 import { seed, type Db } from '../src/db/seed.js';
 import { latestValuations, resolvedThresholds } from '../src/db/queries.js';
 import { rollupDailyBars } from '../src/db/rollup.js';
+import { applyDecision, loadRuleStates, runEvaluator } from '../src/db/alerts.js';
 
 const url = process.env.DATABASE_URL;
 if (!url) { console.error('DATABASE_URL is not set'); process.exit(1); }
@@ -84,12 +85,13 @@ check('safe rules exist only where §4 gives one',
 // ---- DEFECT-02: the partial unique index is really enforced
 console.log('\n--- DEFECT-02 one open alert event per rule ---');
 const ruleId = safes[0] ? Number(safes[0].rule_id) : 0;
+const threshold = safes[0] ? Number(safes[0].threshold) : 1;
 await sql`delete from alert_events where rule_id = ${ruleId}`;
 await db.insert(schema.alertEvents)
-  .values({ ruleId, price: 1, triggeredAt: new Date() });
+  .values({ ruleId, price: 1, threshold, triggeredAt: new Date() });
 let rejected = false;
 try {
-  await db.insert(schema.alertEvents).values({ ruleId, price: 2, triggeredAt: new Date() });
+  await db.insert(schema.alertEvents).values({ ruleId, price: 2, threshold, triggeredAt: new Date() });
 } catch { rejected = true; }
 check('second open event on the same rule is rejected', rejected);
 await sql`delete from alert_events where rule_id = ${ruleId}`;
@@ -152,6 +154,62 @@ check('rollup is idempotent',
   (await db.select().from(schema.dailyBars)).length === 2);
 
 await sql`delete from daily_bars`;
+await sql`delete from price_ticks`;
+
+// ---- M4: the evaluator's raw SQL on the production driver. loadRuleStates() reads
+// numerics and an epoch through db.execute() — the DEFECT-13 class — and
+// applyDecision() leans on ON CONFLICT against a partial unique index. PGlite
+// passing proves neither on postgres.js.
+console.log('\n--- M4 evaluator on the production driver ---');
+const [col] = await sql`
+  select is_nullable from information_schema.columns
+   where table_name = 'alert_events' and column_name = 'threshold'`;
+check('migration 0001 added alert_events.threshold NOT NULL', col?.is_nullable === 'NO');
+
+const [msft] = await db.select().from(schema.securities)
+  .where(eq(schema.securities.ticker, 'MSFT'));
+await sql`delete from alert_events`;
+const series = [410, 401, 399, 399.5, 398, 405, 402];
+for (const [i, price] of series.entries()) {
+  const at = new Date(Date.UTC(2026, 8, 15, 14, 5 * i));
+  await db.insert(schema.priceTicks).values({
+    securityId: msft!.id, price, provider: 'verify', capturedAt: at, quoteAt: null,
+  });
+  await runEvaluator(db, { now: at });
+}
+const msftEvents = await db.select().from(schema.alertEvents);
+const [ev] = msftEvents;
+check('acceptance series -> exactly one event, opened at 399 and cleared',
+  msftEvents.length === 1 && ev?.price === 399 && ev?.threshold === 400 && ev?.clearedAt !== null,
+  `(${JSON.stringify(msftEvents)})`);
+// series[2] = 399 is polled at 14:10Z; series[5] = 405 at 14:25Z.
+check('event timestamps are the ticks\' (14:10Z open, 14:25Z clear)',
+  ev?.triggeredAt.toISOString() === '2026-09-15T14:10:00.000Z'
+    && ev?.clearedAt?.toISOString() === '2026-09-15T14:25:00.000Z',
+  `(${ev?.triggeredAt.toISOString()} -> ${ev?.clearedAt?.toISOString()})`);
+
+const states = await loadRuleStates(db);
+const msftSafe = states.find((s) => s.ticker === 'MSFT' && s.kind === 'safe');
+check('loadRuleStates parses numerics and the epoch on postgres.js',
+  typeof msftSafe?.threshold === 'number' && msftSafe.capturedAt instanceof Date
+    && !Number.isNaN(msftSafe.capturedAt.getTime()),
+  `(${JSON.stringify(msftSafe)})`);
+
+await db.insert(schema.priceTicks).values({
+  securityId: msft!.id, price: 350, provider: 'verify',
+  capturedAt: new Date('2026-09-15T14:35:00Z'), quoteAt: null,
+});
+const [racer] = (await loadRuleStates(db)).filter((s) => s.ticker === 'MSFT' && s.kind === 'safe');
+await runEvaluator(db, { now: new Date('2026-09-15T14:35:00Z') });
+let lost: number | null = -1;
+try {
+  lost = await applyDecision(db, {
+    ...racer!, threshold: racer!.threshold!, price: racer!.price!, capturedAt: racer!.capturedAt!,
+  }, 'trigger');
+} catch { /* a throw is the failure this check exists to catch */ }
+check('a losing double-trigger is absorbed by ON CONFLICT, not thrown', lost === null);
+
+await sql`delete from alert_events`;
 await sql`delete from price_ticks`;
 
 await sql.end();

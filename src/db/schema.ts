@@ -118,6 +118,12 @@ export const alertEvents = pgTable('alert_events', {
   id: serial('id').primaryKey(),
   ruleId: integer('rule_id').notNull().references(() => watchRules.id),
   price: money('price').notNull(),
+  /**
+   * DEFECT-20: the threshold this event crossed, captured at trigger time. A buy
+   * rule's threshold moves with every appended valuation (D1) and M6 edits safe
+   * prices, so the rule's CURRENT value cannot tell the alert log what fired.
+   */
+  threshold: money('threshold').notNull(),
   triggeredAt: timestamp('triggered_at', { withTimezone: true }).notNull(),
   clearedAt: timestamp('cleared_at', { withTimezone: true }),
   acknowledgedAt: timestamp('acknowledged_at', { withTimezone: true }),
@@ -126,6 +132,7 @@ export const alertEvents = pgTable('alert_events', {
     .on(t.ruleId)
     .where(sql`${t.clearedAt} is null`),
   check('alert_events_order_ck', sql`${t.clearedAt} is null or ${t.clearedAt} >= ${t.triggeredAt}`),
+  check('alert_events_positive_ck', sql`${t.price} > 0 and ${t.threshold} > 0`),
 ]);
 
 export const positions = pgTable('positions', {

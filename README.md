@@ -13,7 +13,7 @@ crosses either the Payback Time buy price (D1) or a manually-set safe price (D3)
 | **M1 — schema + seed** | **Complete.** 53 tests passing; verified on PostgreSQL 18.6. |
 | **M2 — quote provider layer** | **Complete.** 22 tests passing. See DEFECT-16..19 — four things the spec got wrong about the provider APIs. |
 | M3 — poller | Not started. See DEFECT-03 (cron is UTC) and DEFECT-14 (market calendar). |
-| M4 — rule evaluator | Not started. Invariant is enforced in the schema already (DEFECT-02). |
+| **M4 — rule evaluator** | **Complete.** 29 tests passing. Adds migration 0001 (DEFECT-20) and fixes a float boundary in the spec's own formula (DEFECT-21). |
 | M5 — dashboard | Not started. See DEFECT-10 (sort key) and read `quote_at`, not `captured_at`, for the stale badge. |
 | M6 — history + manual edit | Not started. |
 
@@ -37,7 +37,7 @@ Against a real database:
 export DATABASE_URL='postgres://user:pass@host/db'
 npm run db:migrate
 npm run db:seed
-npm run db:verify     # 22 acceptance checks; use a scratch database
+npm run db:verify     # 27 acceptance checks; use a scratch database
 ```
 
 `db:verify` is the one that covers what PGlite cannot: the `postgres.js`
@@ -61,13 +61,16 @@ src/db/seed.ts         idempotent seeder; never UPDATEs a valuation
 src/db/queries.ts      latestValuations, resolvedThresholds (append-only read patterns)
 src/db/rollup.ts       daily_bars writer, bucketed in America/New_York
 src/db/rows.ts         driver-agnostic result normalizer (DEFECT-13)
+src/db/alerts.ts       runEvaluator: applies M4 to alert_events; M3 calls it after each poll
+src/lib/evaluate.ts    §5 M4 pure evaluator: trigger / clear / none, exact 0.5% hysteresis
 src/providers/types.ts       QuoteProvider, Quote, the failure taxonomy (DEFECT-08)
 src/providers/http.ts        timeout, retry, concurrency cap, secret redaction
 src/providers/finnhub.ts     one call per symbol — there is no batch endpoint (DEFECT-16)
 src/providers/twelvedata.ts  batched; errors can arrive inside an HTTP 200 (DEFECT-17)
 src/providers/index.ts       env-driven selection + failover orchestrator
 drizzle/0000_init.sql  generated migration
-tests/                 golden fixture, M1 acceptance, M2 providers, defect regressions
+drizzle/0001_alert_threshold.sql  alert_events.threshold (DEFECT-20)
+tests/                 golden fixture, M1 acceptance, M2 providers, M4 evaluator, defect regressions
 ```
 
 ## Three things not to "fix"

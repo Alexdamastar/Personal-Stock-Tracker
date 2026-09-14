@@ -60,10 +60,10 @@ describe('DEFECT-02 - at most one open alert event per rule', () => {
   it('the database rejects a second open event, even from a concurrent retry', async () => {
     const ruleId = await ruleFor('safe');
     await db.insert(schema.alertEvents)
-      .values({ ruleId, price: 219, triggeredAt: new Date('2026-08-28T14:00:00Z') });
+      .values({ ruleId, price: 219, threshold: 220, triggeredAt: new Date('2026-08-28T14:00:00Z') });
     await expect(
       db.insert(schema.alertEvents)
-        .values({ ruleId, price: 218, triggeredAt: new Date('2026-08-28T14:05:00Z') }),
+        .values({ ruleId, price: 218, threshold: 220, triggeredAt: new Date('2026-08-28T14:05:00Z') }),
     ).rejects.toThrow();
     expect(await db.select().from(schema.alertEvents)).toHaveLength(1);
   });
@@ -71,19 +71,19 @@ describe('DEFECT-02 - at most one open alert event per rule', () => {
   it('allows a new event once the previous one is cleared', async () => {
     const ruleId = await ruleFor('safe');
     const [first] = await db.insert(schema.alertEvents)
-      .values({ ruleId, price: 219, triggeredAt: new Date('2026-08-28T14:00:00Z') }).returning();
+      .values({ ruleId, price: 219, threshold: 220, triggeredAt: new Date('2026-08-28T14:00:00Z') }).returning();
     await db.update(schema.alertEvents)
       .set({ clearedAt: new Date('2026-08-28T15:00:00Z') })
       .where(eq(schema.alertEvents.id, first!.id));
     await db.insert(schema.alertEvents)
-      .values({ ruleId, price: 217, triggeredAt: new Date('2026-08-29T14:00:00Z') });
+      .values({ ruleId, price: 217, threshold: 220, triggeredAt: new Date('2026-08-29T14:00:00Z') });
     expect(await db.select().from(schema.alertEvents)).toHaveLength(2);
   });
 
   it('two different rules may each hold an open event', async () => {
     await db.insert(schema.alertEvents).values([
-      { ruleId: await ruleFor('safe'), price: 219, triggeredAt: new Date('2026-08-28T14:00:00Z') },
-      { ruleId: await ruleFor('buy'), price: 208, triggeredAt: new Date('2026-08-28T14:00:00Z') },
+      { ruleId: await ruleFor('safe'), price: 219, threshold: 220, triggeredAt: new Date('2026-08-28T14:00:00Z') },
+      { ruleId: await ruleFor('buy'), price: 208, threshold: 209.29, triggeredAt: new Date('2026-08-28T14:00:00Z') },
     ]);
     expect(await db.select().from(schema.alertEvents)).toHaveLength(2);
   });
@@ -91,7 +91,7 @@ describe('DEFECT-02 - at most one open alert event per rule', () => {
   it('rejects a cleared_at that precedes triggered_at', async () => {
     const ruleId = await ruleFor('safe');
     await expect(db.insert(schema.alertEvents).values({
-      ruleId, price: 219,
+      ruleId, price: 219, threshold: 220,
       triggeredAt: new Date('2026-08-28T15:00:00Z'),
       clearedAt: new Date('2026-08-28T14:00:00Z'),
     })).rejects.toThrow();

@@ -1,0 +1,2 @@
+ALTER TABLE "alert_events" ADD COLUMN "threshold" numeric(18, 4) NOT NULL;--> statement-breakpoint
+ALTER TABLE "alert_events" ADD CONSTRAINT "alert_events_positive_ck" CHECK ("alert_events"."price" > 0 and "alert_events"."threshold" > 0);

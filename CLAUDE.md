@@ -6,12 +6,12 @@ blocked, and which mistakes have already been made and must not be made again.
 - **What is true about the code** → `README.md`
 - **What is wrong with the spec and what was done about it** → `docs/DEFECTS.md`
 - **The build plan as amended** → `C:\Users\wwwra\.claude\plans\mossy-juggling-owl.md`
-  *(outside the repo — it does not travel with the project and is not version-controlled.
-  Move it to `docs/PLAN.md` once git exists.)*
+  *(outside the repo — it does not travel with the project and git does not track it.
+  Move it to `docs/PLAN.md`.)*
 
 **Location:** `C:\Users\wwwra\Downloads\VSCode Projects\rule1-watchlist` since 2026-09-13.
 The path contains a space; quote it in every shell command. Verified after the move:
-75 tests pass and typecheck is clean from the new path.
+75 tests passed and typecheck was clean from the new path.
 
 This file is the index and the memory. Update it at the end of any milestone.
 
@@ -30,19 +30,19 @@ manual. That is a deliberate scope boundary, not an unfinished feature.
 
 ---
 
-## Where things stand — 2026-09-09
+## Where things stand — 2026-09-13
 
 | Milestone | State |
 |---|---|
 | **M1 — schema + seed** | **Complete.** 53 tests (PGlite) + 22 checks on real PostgreSQL 18.6. No schema drift. |
 | **M2 — quote provider layer** | **Complete.** 22 tests, injected `fetch`, no network. |
 | M3 — poller | **Next.** Blocked on API keys and a hosted database (see below). |
-| M4 — rule evaluator | Not started. Smallest of the four; the core invariant is already enforced by the schema. |
+| **M4 — rule evaluator** | **Complete.** 29 tests. Migration 0001 adds `alert_events.threshold`. **Not yet run on real Postgres.** |
 | M5 — dashboard | Not started. **There is no web app yet** — no Next.js, no React, no `src/app`. This is scaffolding, not a milestone. |
 | M6 — history + manual edit | Not started. |
 | Phase 2 (§6) | Blocked on §6.3 (below). |
 
-`npm test` → 75 passing. `npx tsc --noEmit` → clean. `npm audit` → 0 high, 0 critical
+`npm test` → 104 passing. `npx tsc --noEmit` → clean. `npm audit` → 0 high, 0 critical
 (4 moderate, pre-existing).
 
 ---
@@ -56,37 +56,60 @@ manual. That is a deliberate scope boundary, not an unfinished feature.
    Twelve Data key. Both are free signups. `.env.example` lists what is needed.
 2. **No hosted database.** Neon/Supabase has never been touched. Everything so far
    ran against PGlite and a throwaway Docker container.
-3. **The project is not under version control.** No `.git`. 75 tests, a migration and
-   a defect register with nothing tracking them. Fix this before M3.
+3. **Git exists, but most work is uncommitted.** Local repo on `master`, no remote. The
+   one commit ("Initial commmit", 2026-09-13) holds M1 + M2. **M4 is uncommitted**, so a
+   worktree or branch cut from `master` will not see it. Check `git status` before
+   branching; commit only when the user asks.
 
 ### Known risks, already understood
 
-4. **The Neon HTTP driver is a third `db.execute()` result shape** after postgres.js
+4. **M4 has never run on real Postgres.** Docker was down. `loadRuleStates` reads
+   through raw `db.execute()` (the DEFECT-13 class), so PGlite passing proves
+   nothing about postgres.js. `db:verify` now has five M4 checks; its logic was
+   dry-run on PGlite, not on the real driver. **Run it before starting M3.**
+5. **The Neon HTTP driver is a third `db.execute()` result shape** after postgres.js
    and PGlite — the DEFECT-13 class of bug again, and the first real risk in M3.
    `src/db/rows.ts` normalizes the two known shapes; verify the third before trusting
    it. M2 does no database I/O, so it did not exercise this.
-5. **Twelve Data's free tier breaks the fallback at 9 tickers** (DEFECT-18). 8
+6. **Twelve Data's free tier breaks the fallback at 9 tickers** (DEFECT-18). 8
    credits/**minute**, billed per symbol. D4 says "design for ~50"; the free tier
    cannot reach it at any daily budget. Decision on 2026-09-09: build for today's 5,
    record the ceiling. `twelveDataBudget()` plus tests #17/#18 make growth past 8 a
    failing build rather than a silent production failure.
-6. **Cloudflare cron is UTC-only** (DEFECT-03) — the ET window moves by an hour twice
+7. **Cloudflare cron is UTC-only** (DEFECT-03) — the ET window moves by an hour twice
    a year. Widen to `*/5 13-21 * * 1-5` and let the ET gate be the authority.
-7. **`@nasdaq/market-calendar` does not exist** (DEFECT-14). `nyse-holidays` is the
+8. **Disabling a rule freezes its open alert** (DEFECT-22). The evaluator only
+   reads enabled rules. M6's disable action must close the event in the same
+   transaction.
+9. **`@nasdaq/market-calendar` does not exist** (DEFECT-14). `nyse-holidays` is the
    closest real package and carries **no early closes**, which M3's acceptance
    criterion requires. Expect to maintain a small explicit early-close table.
 
 ### Open questions for the user
 
-8. **§6.3 — how `fcfRatio` is derived — is genuinely unresolved.** Five candidate
+10. **§6.3 — how `fcfRatio` is derived — is genuinely unresolved.** Five candidate
    definitions are ruled out arithmetically in `docs/DEFECTS.md`. Experiment 2 (pull
    the MSFT/AAPL panels) is unrun and gates the whole Phase 2 valuation engine.
    `fcfPerShare` stays a manual input until it settles.
-9. **SEC EDGAR requires `User-Agent: <name> <email>`** (Phase 2, §6.1). That means
+11. **SEC EDGAR requires `User-Agent: <name> <email>`** (Phase 2, §6.1). That means
    sending the user's email to an external service. **Needs explicit sign-off before
    any EDGAR call** — never assume it.
 
 ---
+
+## Implementation decisions made with the user
+
+Asked, not assumed. Each has a test that fails if it is reversed.
+
+| Date | Decision |
+|---|---|
+| 2026-09-09 | M2: build for today's 5 tickers and record the Twelve Data ceiling (DEFECT-18). |
+| 2026-09-13 | M4 ships the pure `evaluate()` **and** the DB writer `runEvaluator()`; M3 just calls it. |
+| 2026-09-13 | `alert_events` gains a `threshold` column, migration 0001 (DEFECT-20). |
+| 2026-09-13 | An open alert is judged against the rule's **current** threshold, so moving the line can clear it. |
+| 2026-09-13 | Ticks older than **15 minutes** are not evaluated (same cutoff as the M5 stale badge). |
+
+**When a high-level implementation choice comes up, ask. Don't assume** (user, 2026-09-13).
 
 ## Locked decisions — do not re-litigate
 
@@ -95,7 +118,7 @@ manual. That is a deliberate scope boundary, not an unfinished feature.
 | D1 | Canonical headline buy price = **Payback Time**. 10 Cap and MOS are stored and shown as secondary. |
 | D2 | Sticker price is **display-only**. Never an alert threshold. |
 | D3 | Safe price is **manual, optional**, nullable per ticker. No math. |
-| D4 | Start with 5 tickers; design for ~50. Not 500. *(See problem 5 — the free tier does not reach 50.)* |
+| D4 | Start with 5 tickers; design for ~50. Not 500. *(See problem 6 — the free tier does not reach 50.)* |
 | D5 | TypeScript end to end. Postgres. Drizzle. |
 | D6 | Delayed quotes (15–20 min) are acceptable and assumed. |
 
@@ -116,10 +139,14 @@ Each has a test that fails if "fixed". Long form in `README.md`.
 
 - **Append-only.** Valuations are never UPDATEd; a new one is inserted and the reads
   resolve the latest. `seed()` is idempotent and skips rather than overwrites.
-- **The database is the last line of defence.** Seven CHECK constraints and a partial
+- **The database is the last line of defence.** Eight CHECK constraints and a partial
   unique index (`alert_events ... WHERE cleared_at IS NULL`) enforce invariants that
   application code would otherwise be trusted with. Do not weaken them to make a test
   pass.
+- **Money comparisons happen in integer ten-thousandths, never raw floats** (DEFECT-21).
+  `400 * 1.005 === 401.99999999999994`. `src/lib/evaluate.ts` shows the pattern.
+- **Alert timestamps are tick timestamps (`captured_at`), not the wall clock**, so a
+  replay is deterministic.
 - **`quote_at` is the provider's timestamp and may be NULL. Never default it to
   `now()`** (DEFECT-01). M5's stale badge reads it; defaulting makes stale data look
   fresh, which is the exact failure it exists to catch. `captured_at` is the poll time
@@ -165,10 +192,10 @@ These came out of things that actually went wrong. Keep them.
 ## Commands
 
 ```bash
-npm test                 # 75 tests, no database or container required
+npm test                 # 104 tests, no database or container required
 npx tsc --noEmit         # strict + noUncheckedIndexedAccess
 npm run db:generate      # regenerate the migration from schema.ts
 npm run db:migrate       # apply migrations   (needs DATABASE_URL)
 npm run db:seed          # idempotent §4 seed (needs DATABASE_URL)
-npm run db:verify        # 22 acceptance checks on real Postgres — scratch DB only
+npm run db:verify        # 27 acceptance checks on real Postgres — scratch DB only
 ```
