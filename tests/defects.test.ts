@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, sql } from 'drizzle-orm';
 import { freshDb, schema } from './harness.js';
 import { seed } from '../src/db/seed.js';
 import { rollupDailyBars } from '../src/db/rollup.js';
@@ -186,6 +186,25 @@ describe('data integrity - CHECK constraints reject nonsense at the boundary', (
   it('rejects a safe rule with no value (D3: safe prices are explicit numbers)', async () => {
     await expect(db.insert(schema.watchRules)
       .values({ securityId: amznId, kind: 'safe', value: null })).rejects.toThrow();
+  });
+
+  // DEFECT-24: Postgres orders NaN above every number, so `> 0` alone admits it.
+  it("rejects 'NaN' in a money column, which a bare > 0 CHECK would accept", async () => {
+    await expect(db.execute(sql`
+      insert into price_ticks (security_id, price, provider, captured_at)
+      values (${amznId}, 'NaN', 'test', now())`)).rejects.toThrow();
+    await expect(db.execute(sql`
+      insert into valuations (security_id, method, buy_price, sticker_price, source, as_of)
+      values (${amznId}, 'mos', 'NaN', 'NaN', 'manual', '2026-09-15')`)).rejects.toThrow();
+  });
+
+  // DEFECT-25: a zero line divides by zero in the dashboard's distance and sort key.
+  it('rejects a non-positive watch_rules.value', async () => {
+    const ruleId = await ruleFor('safe');
+    await expect(db.update(schema.watchRules).set({ value: 0 })
+      .where(eq(schema.watchRules.id, ruleId))).rejects.toThrow();
+    await expect(db.update(schema.watchRules).set({ value: -5 })
+      .where(eq(schema.watchRules.id, ruleId))).rejects.toThrow();
   });
 
   it('rejects a non-positive price tick', async () => {

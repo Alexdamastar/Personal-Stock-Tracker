@@ -345,7 +345,12 @@ closes for 2026 and 2027, each checked against nyse.com's published calendar
 outside the table throws, and a tripwire test fails from **2027-11-01** so the table
 is extended before it can crash anything. NYSE has already published 2028.
 
-## OPEN — needs a user decision
+## FIXED in migration 0003
+
+Both were verified on PGlite and on PostgreSQL 18.6 before being fixed;
+`drizzle/0003_money_nan_guards.sql` adds the guards, and
+`tests/defects.test.ts` rejects NaN prices, NaN valuations and a 0 or negative
+rule value. Applied on real Postgres: not yet (Docker was down again).
 
 ### DEFECT-24 — `'NaN'` passes every "must be positive" CHECK
 **Severity: medium. Verified, not inferred.**
@@ -363,7 +368,8 @@ Today's code already defends: M2 rejects non-finite prices, and `evaluate()` and
 view model treat a non-finite value as "no value". The realistic entry points are
 manual SQL and M6's edit form. **Proposed fix:** migration 0003 adding
 `and <col> <> 'NaN'` to each positive CHECK (in Postgres `'NaN' = 'NaN'` is true, so
-the inequality works). Not applied: it is a schema change.
+the inequality works). **Fixed:** every money CHECK now pairs `> 0` with `<> 'NaN'` via the shared
+`positiveMoney()` helper in `schema.ts`.
 
 ### DEFECT-25 — `watch_rules.value` has no positivity CHECK
 **Severity: medium for M6. Verified.**
@@ -372,8 +378,7 @@ Every other money column is constrained `> 0`; `watch_rules.value` is not. A pin
 buy of 0 and a safe price of -5 were both accepted. A zero line divides by zero in
 the dashboard's distance and sort key; the view model skips non-positive thresholds,
 but the database does not stop them. M6's form is where a user would type one.
-**Proposed fix:** fold into migration 0003:
-`value is null or (value > 0 and value <> 'NaN')`.
+**Fixed** in migration 0003: `value is null or (value > 0 and value <> 'NaN')`.
 
 ## DEFERRED to the milestone that owns them
 

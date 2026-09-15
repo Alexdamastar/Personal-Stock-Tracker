@@ -45,7 +45,7 @@ manual. That is a deliberate scope boundary, not an unfinished feature.
 | M6 — history + manual edit | Not started. |
 | Phase 2 (§6) | Blocked on §6.3 (below). |
 
-`npm test` → 271 passing. `npm run build` → passes. `npx tsc --noEmit` → clean. `npm audit` → 0 high, 0 critical
+`npm test` → 273 passing. `npm run build` → passes. `npx tsc --noEmit` → clean. `npm audit` → 0 high, 0 critical
 (6 moderate, all dev tooling).
 
 ---
@@ -92,15 +92,11 @@ manual. That is a deliberate scope boundary, not an unfinished feature.
 
 ### Open questions for the user
 
-12. **Close the NaN and zero-line holes in the schema?** (DEFECT-24, DEFECT-25, both
-   verified.) `'NaN'` passes every `> 0` CHECK, and `watch_rules.value` accepts 0
-   and negatives. Code defends today; a proposed migration 0003 would make the
-   database enforce it. Not applied without sign-off.
-13. **§6.3 — how `fcfRatio` is derived — is genuinely unresolved.** Five candidate
+12. **§6.3 — how `fcfRatio` is derived — is genuinely unresolved.** Five candidate
    definitions are ruled out arithmetically in `docs/DEFECTS.md`. Experiment 2 (pull
    the MSFT/AAPL panels) is unrun and gates the whole Phase 2 valuation engine.
    `fcfPerShare` stays a manual input until it settles.
-14. **SEC EDGAR requires `User-Agent: <name> <email>`** (Phase 2, §6.1). That means
+13. **SEC EDGAR requires `User-Agent: <name> <email>`** (Phase 2, §6.1). That means
    sending the user's email to an external service. **Needs explicit sign-off before
    any EDGAR call** — never assume it.
 
@@ -159,7 +155,7 @@ Each has a test that fails if "fixed". Long form in `README.md`.
 
 - **Append-only.** Valuations are never UPDATEd; a new one is inserted and the reads
   resolve the latest. `seed()` is idempotent and skips rather than overwrites.
-- **The database is the last line of defence.** Nine CHECK constraints and a partial
+- **The database is the last line of defence.** Ten CHECK constraints (every money column rejects NaN, DEFECT-24) and a partial
   unique index (`alert_events ... WHERE cleared_at IS NULL`) enforce invariants that
   application code would otherwise be trusted with. Do not weaken them to make a test
   pass.
@@ -229,7 +225,7 @@ These came out of things that actually went wrong. Keep them.
 ## Commands
 
 ```bash
-npm test                 # 271 tests, no database or container required
+npm test                 # 273 tests, no database or container required
 npm run dev              # dashboard on :3000 — DEMO data unless DATABASE_URL is set
 npm run build            # production build (webpack)
 npx tsc --noEmit         # strict + noUncheckedIndexedAccess

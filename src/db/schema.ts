@@ -18,6 +18,13 @@ const money = (name: string) => numeric(name, { precision: 18, scale: 4, mode: '
 const ratio = (name: string) => numeric(name, { precision: 9, scale: 6, mode: 'number' });
 const shareCount = (name: string) => numeric(name, { precision: 20, scale: 6, mode: 'number' });
 
+/**
+ * DEFECT-24: `'NaN'::numeric > 0` is TRUE in Postgres (NaN sorts above every number),
+ * so a bare `> 0` CHECK lets NaN into a money column. Every money CHECK pairs `> 0`
+ * with `<> 'NaN'`; `'NaN' = 'NaN'` is true for numeric, so the inequality excludes it.
+ */
+const positiveMoney = (col: unknown) => sql`${col} > 0 and ${col} <> 'NaN'`;
+
 export const securities = pgTable('securities', {
   id: serial('id').primaryKey(),
   ticker: text('ticker').notNull().unique(),
@@ -54,7 +61,7 @@ export const valuations = pgTable('valuations', {
   index('valuations_latest_idx').on(t.securityId, t.method, t.asOf.desc(), t.id.desc()),
   check('valuations_method_ck', sql`${t.method} in ('pbt','mos','ten_cap')`),
   check('valuations_source_ck', sql`${t.source} in ('manual','engine')`),
-  check('valuations_positive_ck', sql`${t.buyPrice} > 0 and ${t.stickerPrice} > 0`),
+  check('valuations_positive_ck', sql`${positiveMoney(t.buyPrice)} and ${positiveMoney(t.stickerPrice)}`),
 ]);
 
 export const watchRules = pgTable('watch_rules', {
@@ -69,6 +76,8 @@ export const watchRules = pgTable('watch_rules', {
   // D3: a 'safe' rule is a number the user sets by feel; it has no valuation to
   // fall back on, so NULL is only meaningful for kind='buy' (follows latest PBT).
   check('watch_rules_safe_needs_value_ck', sql`${t.kind} <> 'safe' or ${t.value} is not null`),
+  // DEFECT-25: a pinned 0 or a negative safe price divides by zero in the dashboard.
+  check('watch_rules_value_positive_ck', sql`${t.value} is null or ${positiveMoney(t.value)}`),
 ]);
 
 /**
@@ -98,8 +107,8 @@ export const priceTicks = pgTable('price_ticks', {
 }, (t) => [
   primaryKey({ columns: [t.securityId, t.capturedAt] }),
   index('price_ticks_recent_idx').on(t.securityId, t.capturedAt.desc()),
-  check('price_ticks_positive_ck', sql`${t.price} > 0`),
-  check('price_ticks_prev_close_positive_ck', sql`${t.prevClose} is null or ${t.prevClose} > 0`),
+  check('price_ticks_positive_ck', positiveMoney(t.price)),
+  check('price_ticks_prev_close_positive_ck', sql`${t.prevClose} is null or ${positiveMoney(t.prevClose)}`),
 ]);
 
 /**
@@ -141,7 +150,7 @@ export const alertEvents = pgTable('alert_events', {
     .on(t.ruleId)
     .where(sql`${t.clearedAt} is null`),
   check('alert_events_order_ck', sql`${t.clearedAt} is null or ${t.clearedAt} >= ${t.triggeredAt}`),
-  check('alert_events_positive_ck', sql`${t.price} > 0 and ${t.threshold} > 0`),
+  check('alert_events_positive_ck', sql`${positiveMoney(t.price)} and ${positiveMoney(t.threshold)}`),
 ]);
 
 export const positions = pgTable('positions', {

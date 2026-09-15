@@ -22,6 +22,13 @@
       "when": 1789357233227,
       "tag": "0002_tick_prev_close",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1789514571188,
+      "tag": "0003_money_nan_guards",
+      "breakpoints": true
     }
   ]
 }
