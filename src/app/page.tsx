@@ -33,12 +33,12 @@ export default async function DashboardPage() {
   return (
     <>
       {mode === 'demo' && <DemoBanner />}
-      <main className="mx-auto max-w-7xl px-4 py-6">
-        <header className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
-          <h1 className="text-xl font-semibold tracking-tight">
-            <span className="text-accent">Rule #1</span> Watchlist
-          </h1>
-          <p className="text-xs text-muted">
+      <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
+        {/* DESIGN.md heading-2: weight 700 with its negative tracking applied explicitly.
+            All ink: blue is reserved for actions and links, never a wordmark. */}
+        <header className="mb-6 flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2">
+          <h1 className="text-heading-2 font-bold text-ink">Rule #1 Watchlist</h1>
+          <p className="text-caption text-muted">
             Updated <time dateTime={now.toISOString()}>{renderedAt.format(now)}</time> · refreshes every
             minute · quotes delayed 15–20 min
           </p>

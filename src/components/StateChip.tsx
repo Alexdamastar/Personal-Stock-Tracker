@@ -12,21 +12,35 @@ export const CHIP_LABELS: Record<ChipState, string> = {
 };
 
 /**
- * Every state differs in shape and text as well as color, so the chip survives
- * grayscale, color blindness and forced-colors mode. Emphasis climbs with the state:
- * a hollow outline, a tinted warning, a bordered tint, then a solid fill for at_buy
+ * DESIGN.md status pill: 5px radius, hairline edge, ink text. The label is always ink,
+ * so contrast never depends on a status color; the state's color lives in the glyph,
+ * DESIGN.md's colored-dot idiom (decision 2026-09-13).
+ *
+ * Every state still differs in shape, text AND color, so the chip survives grayscale,
+ * color blindness and forced-colors mode. Emphasis climbs with the state: a plain pill,
+ * then a tinted pill in semibold for at_safe, then a deeper tint and bold for at_buy
  * (the user asked for at_buy strongest, then at_safe).
  */
 const CHIP_CLASSES: Record<ChipState, string> = {
-  watching: 'border border-line text-muted',
-  approaching: 'border border-warn bg-warn-tint text-warn-ink',
-  at_safe: 'border-2 border-good bg-good-tint text-good-ink font-semibold',
-  at_buy: 'border-2 border-good-solid bg-good-solid text-on-good-solid font-bold shadow-sm',
+  watching: 'border-line bg-surface font-medium text-muted',
+  approaching: 'border-line bg-surface font-medium text-ink',
+  at_safe: 'border-status-safe-edge bg-status-safe-tint font-semibold text-ink',
+  at_buy: 'border-status-buy-edge bg-status-buy-tint font-bold text-ink',
+};
+
+const GLYPH_CLASSES: Record<ChipState, string> = {
+  watching: 'text-status-watch',
+  approaching: 'text-status-approach',
+  at_safe: 'text-status-safe',
+  at_buy: 'text-status-buy',
 };
 
 function ChipIcon({ state }: { state: ChipState }) {
-  // 12px glyphs in currentColor so each shape inherits the chip's own contrast.
-  const common = { width: 12, height: 12, viewBox: '0 0 12 12', 'aria-hidden': true, focusable: false } as const;
+  // 12px glyphs in currentColor, colored by GLYPH_CLASSES.
+  const common = {
+    width: 12, height: 12, viewBox: '0 0 12 12', 'aria-hidden': true, focusable: false,
+    className: `shrink-0 ${GLYPH_CLASSES[state]}`,
+  } as const;
   switch (state) {
     case 'watching':
       // Hollow circle: nothing to act on.
@@ -66,7 +80,7 @@ export function StateChip({ state }: { state: ChipState }) {
   return (
     <span
       data-chip={state}
-      className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs ${CHIP_CLASSES[state]}`}
+      className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-sm border px-2 py-0.5 text-eyebrow ${CHIP_CLASSES[state]}`}
     >
       <ChipIcon state={state} />
       {CHIP_LABELS[state]}

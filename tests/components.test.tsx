@@ -106,7 +106,7 @@ describe('DashboardTable', () => {
     expect(new Set(glyphs).size).toBe(4);
     const cls = (s: ChipState) => document.querySelector(`[data-chip="${s}"]`)!.className;
     expect(cls('at_buy')).toContain('font-bold');
-    expect(cls('at_buy')).toContain('bg-good-solid');
+    expect(cls('at_buy')).toContain('bg-status-buy-tint');
     expect(cls('at_safe')).toContain('font-semibold');
     expect(cls('watching')).not.toMatch(/font-(bold|semibold)/);
   });

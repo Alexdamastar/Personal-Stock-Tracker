@@ -72,12 +72,14 @@ function describe(data: SparklineData): string {
  * 30-day close sparkline with the safe and buy prices as horizontal rules. Hand-rolled
  * SVG: one polyline does not justify a chart library in the bundle.
  *
- * The two rules differ by dash pattern as well as color (safe dashed, buy solid).
+ * The two rules differ by dash pattern as well as color (safe dashed, buy solid), and
+ * use the same status colors as the chips, so a line on the chart and the chip it
+ * produces read as one thing.
  */
 export function Sparkline({ data }: { data: SparklineData }) {
   // Rules with no closes to compare against would be a chart of nothing.
   if (data.points.length === 0) {
-    return <span className="text-xs text-muted">no history</span>;
+    return <span className="text-caption text-muted">no history</span>;
   }
 
   const g = sparklineGeometry(data);
@@ -101,7 +103,7 @@ export function Sparkline({ data }: { data: SparklineData }) {
           x2={WIDTH}
           y1={g.safeY}
           y2={g.safeY}
-          className="stroke-good"
+          className="stroke-status-safe"
           strokeWidth={1.5}
           strokeDasharray="4 2.5"
         />
@@ -113,7 +115,7 @@ export function Sparkline({ data }: { data: SparklineData }) {
           x2={WIDTH}
           y1={g.buyY}
           y2={g.buyY}
-          className="stroke-good-solid"
+          className="stroke-status-buy"
           strokeWidth={1.5}
         />
       )}

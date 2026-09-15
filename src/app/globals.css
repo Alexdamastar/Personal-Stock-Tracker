@@ -1,87 +1,160 @@
 @import 'tailwindcss';
 
 /*
- * Design tokens. Three roles that must never be confused (spec M5):
- *   accent    brand only: the title, links, focus rings
- *   good/warn/critical   semantic state: chips, row emphasis, stale badge, demo banner
- *   ink/muted/line       everything else
- * Each *-ink is the text color to use on its *-tint; pairs are chosen for WCAG AA
- * (4.5:1) in both schemes.
+ * Design tokens — DESIGN.md is the reference. Read it before changing anything here.
+ *
+ * Three roles that must never be confused:
+ *   primary        the ONE structural accent: links, the focus ring. Nothing else.
+ *   status-*       chip glyphs, the stale badge, sparkline rules. DESIGN.md has no
+ *                  semantic ramp; its Semantic section carries status with the
+ *                  decorative palette, so status colors come from there (decision
+ *                  2026-09-13). They mark state; they never fill layout.
+ *   ink/line/...   everything else.
+ *
+ * Status tints are derived with color-mix against --surface rather than invented as
+ * extra hex values, so they follow the dark palette automatically.
  */
 :root {
-  --canvas: #f6f6f4;
-  --surface: #ffffff;
-  --ink: #1b1d22;
-  --muted: #5a5f6b;
-  --line: #d8dbe1;
+  /* Surface */
+  --canvas: #f6f5f4;         /* DESIGN.md canvas-soft: the warm paper page */
+  --surface: #ffffff;        /* cards, the table */
+  --line: #e6e6e6;           /* hairline */
 
-  --accent: #4338ca;
+  /* Text. Ink is black at ~95% per DESIGN.md. ink-faint (#a39e98) is 2.66:1 on
+     white, below AA for text, so readable metadata uses --muted (6.53:1) instead and
+     faint is kept for glyphs that always sit beside a text label. Ratios measured. */
+  --ink: rgb(0 0 0 / 0.95);
+  --ink-secondary: #31302e;
+  --muted: #615d59;
+  --faint: #a39e98;
 
-  --good: #15803d;
-  --good-tint: #dcfce7;
-  --good-ink: #14532d;
-  --good-solid: #166534;
-  --on-good-solid: #ffffff;
+  /* Brand */
+  --primary: #0075de;
+  --primary-active: #005bab;
+  --secondary: #213183;      /* the single deep-indigo band: the DEMO banner */
+  --on-primary: #ffffff;
 
-  --warn: #b45309;
-  --warn-tint: #fef3c7;
-  --warn-ink: #78350f;
-
-  --critical: #b91c1c;
-  --critical-tint: #fee2e2;
-  --critical-ink: #7f1d1d;
+  /* Status, from DESIGN.md's palette, unaltered.
+     KNOWN TRADE-OFF: DESIGN.md's green is 2.93:1 on white (2.55:1 on the buy tint)
+     and teal is 2.99:1 on its tint — under WCAG 1.4.11's 3:1 for graphics. The glyphs
+     never carry meaning alone (every chip has its text label and a distinct shape),
+     so the chip stays readable, but the light-mode star is visually weaker than a
+     compliant green would be. */
+  --status-buy: #1aae39;     /* accent-green */
+  --status-safe: #2a9d99;    /* accent-teal */
+  --status-approach: #dd5b00;/* accent-orange */
+  --status-watch: #a39e98;   /* ink-faint */
+  --status-stale: #dd5b00;   /* accent-orange: badge edge and glyph */
+  --status-stale-ink: #793400; /* accent-orange-deep: badge text, 7.84:1 on its tint */
 
   color-scheme: light dark;
 }
 
+/*
+ * Dark mode is NOT in DESIGN.md, which defines a light system only. This palette is
+ * derived from it (decision 2026-09-13): warm dark paper instead of warm light paper,
+ * warm off-white ink, the same blue and status hues, lightened only where a value
+ * would fall below WCAG AA on the dark surface.
+ */
 @media (prefers-color-scheme: dark) {
   :root {
-    --canvas: #0e1014;
-    --surface: #161920;
-    --ink: #e7e9ee;
-    --muted: #a0a6b2;
-    --line: #2c313b;
+    --canvas: #1a1917;
+    --surface: #232220;
+    --line: #363431;
 
-    --accent: #a5b4fc;
+    --ink: #f1efec;
+    --ink-secondary: #d6d3ce;
+    --muted: #a39e98;        /* 5.98:1 on the dark surface */
+    --faint: #6f6a64;
 
-    --good: #4ade80;
-    --good-tint: #0f2a1a;
-    --good-ink: #86efac;
-    --good-solid: #4ade80;
-    --on-good-solid: #052e16;
+    --primary: #4ea3f5;      /* 5.97:1; #0075de would be 3.48:1 here, and links need 4.5 */
+    --primary-active: #7ab9f7;
+    --secondary: #213183;
+    --on-primary: #ffffff;
 
-    --warn: #f59e0b;
-    --warn-tint: #33240a;
-    --warn-ink: #fcd34d;
-
-    --critical: #f87171;
-    --critical-tint: #3a1414;
-    --critical-ink: #fca5a5;
+    --status-buy: #2cc54c;
+    --status-safe: #3bb5b0;
+    --status-approach: #f07a26;
+    --status-watch: #8a847d;
+    --status-stale: #f07a26;
+    --status-stale-ink: #f6a466;
   }
+}
+
+:root {
+  --status-buy-tint: color-mix(in srgb, var(--status-buy) 13%, var(--surface));
+  --status-buy-edge: color-mix(in srgb, var(--status-buy) 55%, var(--surface));
+  --status-safe-tint: color-mix(in srgb, var(--status-safe) 9%, var(--surface));
+  --status-safe-edge: color-mix(in srgb, var(--status-safe) 40%, var(--surface));
+  --status-stale-tint: color-mix(in srgb, var(--status-stale) 12%, var(--surface));
 }
 
 /* `inline` so utilities reference the variables and follow the dark-mode swap. */
 @theme inline {
   --color-canvas: var(--canvas);
   --color-surface: var(--surface);
-  --color-ink: var(--ink);
-  --color-muted: var(--muted);
   --color-line: var(--line);
-  --color-accent: var(--accent);
-  --color-good: var(--good);
-  --color-good-tint: var(--good-tint);
-  --color-good-ink: var(--good-ink);
-  --color-good-solid: var(--good-solid);
-  --color-on-good-solid: var(--on-good-solid);
-  --color-warn: var(--warn);
-  --color-warn-tint: var(--warn-tint);
-  --color-warn-ink: var(--warn-ink);
-  --color-critical: var(--critical);
-  --color-critical-tint: var(--critical-tint);
-  --color-critical-ink: var(--critical-ink);
+  --color-ink: var(--ink);
+  --color-ink-secondary: var(--ink-secondary);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-primary: var(--primary);
+  --color-primary-active: var(--primary-active);
+  --color-secondary: var(--secondary);
+  --color-on-primary: var(--on-primary);
+
+  --color-status-buy: var(--status-buy);
+  --color-status-buy-tint: var(--status-buy-tint);
+  --color-status-buy-edge: var(--status-buy-edge);
+  --color-status-safe: var(--status-safe);
+  --color-status-safe-tint: var(--status-safe-tint);
+  --color-status-safe-edge: var(--status-safe-edge);
+  --color-status-approach: var(--status-approach);
+  --color-status-watch: var(--status-watch);
+  --color-status-stale: var(--status-stale);
+  --color-status-stale-ink: var(--status-stale-ink);
+  --color-status-stale-tint: var(--status-stale-tint);
+
+  --font-sans: var(--font-inter), Inter, -apple-system, system-ui, 'Segoe UI', Helvetica, Arial, sans-serif;
+}
+
+@theme {
+  /* DESIGN.md rounded scale. `sm` (5px) is the status-pill radius. */
+  --radius-xs: 4px;
+  --radius-sm: 5px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+
+  /* DESIGN.md type scale. Weights are set per use, so a chip can climb in weight. */
+  --text-heading-2: 26px;
+  --text-heading-2--line-height: 1.23;
+  --text-heading-2--letter-spacing: -0.625px;
+  --text-title: 20px;
+  --text-title--line-height: 1.4;
+  --text-title--letter-spacing: -0.125px;
+  --text-body-md: 16px;
+  --text-body-md--line-height: 1.5;
+  --text-body-sm: 15px;
+  --text-body-sm--line-height: 1.33;
+  --text-caption: 14px;
+  --text-caption--line-height: 1.43;
+  --text-eyebrow: 12px;
+  --text-eyebrow--line-height: 1.33;
+  --text-eyebrow--letter-spacing: 0.125px;
+
+  /* DESIGN.md elevation level 1: many near-transparent layers, never a hard cast. */
+  --shadow-soft: rgba(0, 0, 0, 0.01) 0 0.175px 1.041px, rgba(0, 0, 0, 0.02) 0 0.8px 2.925px,
+    rgba(0, 0, 0, 0.027) 0 2.025px 7.847px, rgba(0, 0, 0, 0.04) 0 4px 18px;
+}
+
+body {
+  /* DESIGN.md: lining numerals and localized forms on body and headings. */
+  font-feature-settings: 'lnum', 'locl';
 }
 
 :focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--primary);
   outline-offset: 2px;
+  border-radius: var(--radius-xs);
 }
