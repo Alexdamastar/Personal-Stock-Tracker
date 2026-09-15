@@ -356,8 +356,8 @@ Postgres `numeric` accepts `'NaN'`, and Postgres orders NaN above every number, 
 `sticker_price`, and `alert_events.price` / `threshold`. Read back through Drizzle it
 becomes a JS `NaN`.
 
-Confirmed against PGlite (real Postgres compiled to WASM, same numeric semantics) on
-2026-09-13: all four inserts were accepted.
+Confirmed on 2026-09-13 against PGlite and then against a real PostgreSQL 18.6
+server: every insert was accepted.
 
 Today's code already defends: M2 rejects non-finite prices, and `evaluate()` and the
 view model treat a non-finite value as "no value". The realistic entry points are
@@ -660,8 +660,8 @@ Six guards were mutation-tested, each reverted in place with the suite re-run:
 | current threshold -> trigger-time threshold for clearing | the moved-line test |
 | `no_threshold` skip | the no-PBT-valuation test |
 
-**`npm run db:verify` has NOT been run on real Postgres for M4.** Docker was not
-running. The verifier gained five M4 checks (27 total): migration 0001's column,
+**`npm run db:verify` had not been run on real Postgres for M4 at the time** —
+Docker was not running. It has since passed; see "Real PostgreSQL run" below. The verifier gained five M4 checks (27 total): migration 0001's column,
 the acceptance series through `runEvaluator`, the tick-derived timestamps,
 `loadRuleStates` numeric/epoch parsing, and the ON CONFLICT race. They matter
 because `loadRuleStates` reads through raw `db.execute()` (the DEFECT-13 class),
@@ -723,6 +723,22 @@ file was touched by more than one branch and all five merged without conflict.
 6. **The harness's built-in worktree isolation is unavailable** from a session started
    outside the repo; the worktrees were created manually with `git worktree add`.
 
-**Still not verified:** `npm run db:verify` (33 checks: M4's 5 and M5's 6 new) has
-never run on real Postgres. Its logic was dry-run on PGlite. Database mode of
-`getAppDb()` has no test, because it needs a live database.
+**Real-Postgres verification:** done the same day — see below.
+
+### Real PostgreSQL run — 2026-09-13
+
+Docker available; throwaway `postgres:18-alpine` container (PostgreSQL 18.6), removed
+afterwards.
+
+| Check | Result |
+|---|---|
+| `npm run db:verify`, postgres.js | **33/33 pass** — including M4's 5 and M5's 6, previously PGlite-only |
+| Second run on the populated database | 33/33 pass; `drizzle.__drizzle_migrations` holds 3 rows — all migrations re-apply cleanly |
+| DEFECT-24 / DEFECT-25 on the real server | confirmed: `'NaN'::numeric > 0` is true; NaN price and valuation, and `watch_rules.value` of 0 and -5, all accepted (rolled back) |
+| **Database mode, end to end** | `next start` with `DATABASE_URL` set, AAPL tick at 195.00 inserted: HTTP 200, no DEMO banner, AAPL first, "at safe price", $195.00, -1.19% change, -2.50% to safe, "quote 21m old" |
+
+That last row is the spec's M5 acceptance criterion through the production server,
+the production driver and a real Postgres — the one path no automated test covers,
+because `getAppDb()`'s database mode needs a live server.
+
+Still not exercised: the Neon HTTP driver (M3), and any hosted database.

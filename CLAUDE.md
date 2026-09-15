@@ -5,6 +5,9 @@ blocked, and which mistakes have already been made and must not be made again.
 
 - **What is true about the code** → `README.md`
 - **What is wrong with the spec and what was done about it** → `docs/DEFECTS.md`
+- **How the UI must look** → `DESIGN.md`. **Read it before writing or changing any UI**
+  (user, 2026-09-13). Tokens live in `src/app/globals.css`; the deviations it forces are
+  recorded under "Implementation decisions" below.
 - **The build plan as amended** → `C:\Users\wwwra\.claude\plans\mossy-juggling-owl.md`
   *(outside the repo — it does not travel with the project and git does not track it.
   Move it to `docs/PLAN.md`.)*
@@ -37,8 +40,8 @@ manual. That is a deliberate scope boundary, not an unfinished feature.
 | **M1 — schema + seed** | **Complete.** 53 tests (PGlite) + 22 checks on real PostgreSQL 18.6. No schema drift. |
 | **M2 — quote provider layer** | **Complete.** 22 tests, injected `fetch`, no network. |
 | M3 — poller | **Next.** Blocked on API keys and a hosted database (see below). |
-| **M4 — rule evaluator** | **Complete.** 29 tests. Migration 0001 adds `alert_events.threshold`. **Not yet run on real Postgres.** |
-| **M5 — dashboard** | **Complete.** 167 tests; spec acceptance passes end to end. Next.js 16 (webpack). PGlite demo when `DATABASE_URL` is unset. |
+| **M4 — rule evaluator** | **Complete.** 29 tests. Migration 0001 adds `alert_events.threshold`. Verified on PostgreSQL 18.6. |
+| **M5 — dashboard** | **Complete.** 167 tests; spec acceptance passes end to end, including through `next start` on PostgreSQL 18.6. Next.js 16 (webpack). PGlite demo when `DATABASE_URL` is unset. |
 | M6 — history + manual edit | Not started. |
 | Phase 2 (§6) | Blocked on §6.3 (below). |
 
@@ -62,11 +65,9 @@ manual. That is a deliberate scope boundary, not an unfinished feature.
 
 ### Known risks, already understood
 
-4. **M4 and M5 have never run on real Postgres.** Docker was down both times.
-   `loadRuleStates` and `loadDashboardData` read through raw `db.execute()` (the
-   DEFECT-13 class), so PGlite passing proves nothing about postgres.js.
-   `db:verify` has 33 checks; their logic was dry-run on PGlite only.
-   **Run it before starting M3.**
+4. **Only a throwaway Postgres has been used.** `db:verify` passes 33/33 on
+   PostgreSQL 18.6 via postgres.js, and database mode renders through `next start`
+   (2026-09-13). No hosted database (Neon/Supabase) has been touched.
 5. **The Neon HTTP driver is a third `db.execute()` result shape** after postgres.js
    and PGlite — the DEFECT-13 class of bug again, and the first real risk in M3.
    `src/db/rows.ts` normalizes the two known shapes; verify the third before trusting
@@ -123,6 +124,10 @@ Asked, not assumed. The code-level ones each have a test that fails if reversed.
 | 2026-09-13 | The stale badge reads **poll age** (`captured_at`); quote age is text. Corrects DEFECT-01. |
 | 2026-09-13 | With no `DATABASE_URL`, the app runs a **PGlite demo**, re-stamped on each page load (no API cost). |
 | 2026-09-13 | M5 built by **five agents in parallel**, one git worktree and branch each, merged by the orchestrator. |
+| 2026-09-13 | UI follows **`DESIGN.md`**. Where it is silent or conflicts, these rulings apply: |
+| 2026-09-13 | — **Dark mode stays**, with a warm dark palette *derived* from DESIGN.md (it defines light only). |
+| 2026-09-13 | — **Status uses DESIGN.md's decorative palette as colored glyphs** on white pills (buy green, safe teal, approaching orange, stale deep orange). Blue is for links and focus only. No row tints. |
+| 2026-09-13 | — The **DEMO banner is the deep-indigo band**, the page's single dark moment. |
 
 **When a high-level implementation choice comes up, ask. Don't assume** (user, 2026-09-13).
 

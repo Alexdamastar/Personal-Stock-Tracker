@@ -13,7 +13,7 @@ crosses either the Payback Time buy price (D1) or a manually-set safe price (D3)
 | **M1 — schema + seed** | **Complete.** 53 tests passing; verified on PostgreSQL 18.6. |
 | **M2 — quote provider layer** | **Complete.** 22 tests passing. See DEFECT-16..19 — four things the spec got wrong about the provider APIs. |
 | M3 — poller | Not started. See DEFECT-03 (cron is UTC) and DEFECT-14 (market calendar). |
-| **M4 — rule evaluator** | **Complete.** 29 tests passing. Adds migration 0001 (DEFECT-20) and fixes a float boundary in the spec's own formula (DEFECT-21). |
+| **M4 — rule evaluator** | **Complete.** 29 tests passing; verified on PostgreSQL 18.6. Adds migration 0001 (DEFECT-20) and fixes a float boundary in the spec's own formula (DEFECT-21). |
 | **M5 — dashboard** | **Complete.** 167 tests, including the spec's acceptance criterion end to end. Next.js 16 app; runs a PGlite demo when `DATABASE_URL` is unset. |
 | M6 — history + manual edit | Not started. |
 
@@ -47,7 +47,7 @@ Against a real database:
 export DATABASE_URL='postgres://user:pass@host/db'
 npm run db:migrate
 npm run db:seed
-npm run db:verify     # 27 acceptance checks; use a scratch database
+npm run db:verify     # 33 acceptance checks; use a scratch database
 ```
 
 `db:verify` is the one that covers what PGlite cannot: the `postgres.js`
