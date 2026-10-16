@@ -406,7 +406,7 @@ trigger itself.
 do the real filtering:
 
 ```
-*/5 13-21 * * 1-5     # ~108 fires/day, still trivially inside the free tier
+*/5 13-21 * * MON-FRI     # ~108 fires/day, still trivially inside the free tier
 ```
 
 The gate function — not the cron — is the authority on whether a poll happens.
@@ -747,3 +747,12 @@ the production driver and a real Postgres — the one path no automated test cov
 because `getAppDb()`'s database mode needs a live server.
 
 Still not exercised: the Neon HTTP driver (M3), and any hosted database.
+
+### DEFECT-27 — Cloudflare cron counts 1 = Sunday; `1-5` skipped every Friday (M3)
+**Severity: high. Found live 2026-10-16.**
+
+The first deployed cron was `*/5 13-21 * * 1-5`, standard-cron for Mon–Fri. Cloudflare's
+day-of-week runs 1 = Sunday … 7 = Saturday, so it meant Sun–Thu: no Worker fired on
+Friday 2026-10-16 and the dashboard went stale in market hours. Fixed with day names,
+`MON-FRI`, which have one meaning everywhere. Verified: Worker ticks resumed 16:40 UTC.
+Never use numeric day-of-week in a Cloudflare cron.

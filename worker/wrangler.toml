@@ -12,4 +12,5 @@ enabled = true
 
 [triggers]
 # 13:00-21:55 UTC Mon-Fri covers 09:30-16:00 ET in both EDT and EST. ~108 fires/day.
-crons = ["*/5 13-21 * * 1-5"]
+# Day names, not numbers: Cloudflare counts 1 = SUNDAY, so "1-5" silently skipped Fridays.
+crons = ["*/5 13-21 * * MON-FRI"]

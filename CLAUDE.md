@@ -81,7 +81,7 @@ manual. That is a deliberate scope boundary, not an unfinished feature.
    record the ceiling. `twelveDataBudget()` plus tests #17/#18 make growth past 8 a
    failing build rather than a silent production failure.
 7. ~~Cloudflare cron is UTC-only~~ (DEFECT-03) — done in `worker/wrangler.toml`:
-   `*/5 13-21 * * 1-5`, and `runPoll`'s ET gate is the authority.
+   `*/5 13-21 * * MON-FRI`, and `runPoll`'s ET gate is the authority.
 8. **Disabling a rule freezes its open alert** (DEFECT-22). The evaluator only
    reads enabled rules. M6's disable action must close the event in the same
    transaction.
