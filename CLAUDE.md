@@ -59,9 +59,11 @@ manual. That is a deliberate scope boundary, not an unfinished feature.
    Twelve Data key. Both are free signups. `.env.example` lists what is needed.
 2. **No hosted database.** Neon/Supabase has never been touched. Everything so far
    ran against PGlite and a throwaway Docker container.
-3. **No remote.** Local git on `master`, nothing pushed anywhere. M4 and M5 are
-   committed. Check `git status` before branching (a worktree only sees what is
-   committed); commit only when the user asks.
+3. ~~No remote.~~ **Pushed.** `origin` is
+   github.com/Alexdamastar/Personal-Stock-Tracker; `master` matches it. Note there is
+   no local `origin/master` ref, so `git status` cannot show ahead/behind until a
+   `git fetch` — check with `git ls-remote origin -h refs/heads/master`.
+   Commit only when the user asks.
 
 ### Known risks, already understood
 

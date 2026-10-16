@@ -29,8 +29,8 @@ const APPROACH_DENOMINATOR = 10n;
 /**
  * Same test as evaluate()'s `isUsable`. A threshold that is null, non-finite or
  * non-positive is "no threshold" and is skipped everywhere — never treated as zero.
- * Non-positive matters: watch_rules.value has no `> 0` CHECK, so a pinned 0 can
- * exist, and `(price - 0) / 0` would put the row at +Infinity or NaN in the sort.
+ * Non-positive matters: a 0 or negative line divides by zero here (migration 0003
+ * now rejects those at the database, DEFECT-25).
  * Non-finite matters too: Postgres numeric accepts 'NaN', and NaN > 0 is TRUE there,
  * so the price_ticks CHECK does not keep it out.
  */
