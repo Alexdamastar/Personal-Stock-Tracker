@@ -8,9 +8,8 @@ blocked, and which mistakes have already been made and must not be made again.
 - **How the UI must look** → `DESIGN.md`. **Read it before writing or changing any UI**
   (user, 2026-09-13). Tokens live in `src/app/globals.css`; the deviations it forces are
   recorded under "Implementation decisions" below.
-- **The build plan as amended** → `C:\Users\wwwra\.claude\plans\mossy-juggling-owl.md`
-  *(outside the repo — it does not travel with the project and git does not track it.
-  Move it to `docs/PLAN.md`.)*
+- **The build plan as amended** → `docs/PLAN.md` (M6, the exit gate and Phase 2 in full)
+- **The original spec** → `docs/SPEC.md`. Every "§" reference in the repo points there.
 
 **Location:** `C:\Users\wwwra\Downloads\VSCode Projects\rule1-watchlist` since 2026-09-13.
 The path contains a space; quote it in every shell command. Verified after the move:
@@ -33,7 +32,7 @@ manual. That is a deliberate scope boundary, not an unfinished feature.
 
 ---
 
-## Where things stand — 2026-09-13
+## Where things stand — 2026-10-16
 
 | Milestone | State |
 |---|---|
@@ -42,8 +41,8 @@ manual. That is a deliberate scope boundary, not an unfinished feature.
 | **M3 — poller** | **Live (2026-10-16).** App on Vercel (https://personal-stock-tracker-delta.vercel.app, env vars Production-only), Worker `rule1-poller` deployed on Cloudflare with POLL_URL/POLL_TOKEN secrets, no workers.dev URL, logs on. `src/db/poll.ts` (`runPoll`, `isAuthorized`), `POST /api/poll` (bearer `POLL_TOKEN`; 401 / 503 demo / 502 nothing written), `worker/` Cloudflare cron that only calls the route. 10 tests. Verified via `next start` on Neon: 401s and `closed` off-session. First Worker-written ticks 2026-10-16 16:40 UTC after the DEFECT-27 fix. **Open:** Phase 1 exit gate (5 clean trading days from 2026-10-19); dashboard is public with no password yet (needed before M6). |
 | **M4 — rule evaluator** | **Complete.** 29 tests. Migration 0001 adds `alert_events.threshold`. Verified on PostgreSQL 18.6. |
 | **M5 — dashboard** | **Complete.** 167 tests; spec acceptance passes end to end, including through `next start` on PostgreSQL 18.6. Next.js 16 (webpack). PGlite demo when `DATABASE_URL` is unset. |
-| M6 — history + manual edit | Not started. |
-| Phase 2 (§6) | Blocked on §6.3 (below). |
+| M6 — history + manual edit | Not started. Needs dashboard auth first (`docs/PLAN.md`). |
+| Phase 2 (§6) | Not started. **Start with AMZN 10 Cap**: it needs no growth rate or FCF ratio, so §6.3 does not block it. Only PBT is blocked on §6.3. |
 
 `npm test` → 283 passing. `npm run build` → passes. `npx tsc --noEmit` → clean. `npm audit` → 0 high, 0 critical
 (6 moderate, all dev tooling).
@@ -60,28 +59,25 @@ manual. That is a deliberate scope boundary, not an unfinished feature.
 2. ~~No hosted database.~~ **Neon, live (2026-10-15).** Migrations 0000-0003 applied,
    §4 seeded, `db:verify` 33/33, and the dashboard renders against it with no DEMO
    banner. `.env` uses the POOLED endpoint. Free tier suspends after ~5 min idle.
-3. ~~No remote.~~ **Pushed.** `origin` is
-   github.com/Alexdamastar/Personal-Stock-Tracker; `master` matches it. Note there is
-   no local `origin/master` ref, so `git status` cannot show ahead/behind until a
-   `git fetch` — check with `git ls-remote origin -h refs/heads/master`.
-   Commit only when the user asks.
+3. ~~No remote.~~ `origin` is github.com/Alexdamastar/Personal-Stock-Tracker. Run
+   `git fetch` before trusting `git status` ahead/behind. Pushing `master` redeploys
+   the app on Vercel; `worker/` changes deploy separately with `npx wrangler deploy`.
 
 ### Known risks, already understood
 
 4. ~~Only a throwaway Postgres.~~ **Verified on Neon** (2026-10-15): 33/33 including
-   migration 0003, which had never run on real Postgres. Still unexercised: the Neon
-   HTTP driver (next item) — the app uses postgres.js over TCP, not HTTP.
-5. **(Moot since M3: the Worker calls `/api/poll` over HTTP, so no Neon HTTP driver.)** The Neon HTTP driver is a third `db.execute()` result shape after postgres.js
-   and PGlite — the DEFECT-13 class of bug again, and the first real risk in M3.
-   `src/db/rows.ts` normalizes the two known shapes; verify the third before trusting
-   it. M2 does no database I/O, so it did not exercise this.
+   migration 0003, which had never run on real Postgres.
+5. ~~Neon HTTP driver~~ — moot: the Worker calls `/api/poll` over HTTP and never
+   touches the database. If a Worker ever queries Postgres directly, its driver is a
+   third `db.execute()` result shape (DEFECT-13 class); verify it in `src/db/rows.ts`.
 6. **Twelve Data's free tier breaks the fallback at 9 tickers** (DEFECT-18). 8
    credits/**minute**, billed per symbol. D4 says "design for ~50"; the free tier
    cannot reach it at any daily budget. Decision on 2026-09-09: build for today's 5,
    record the ceiling. `twelveDataBudget()` plus tests #17/#18 make growth past 8 a
    failing build rather than a silent production failure.
 7. ~~Cloudflare cron is UTC-only~~ (DEFECT-03) — done in `worker/wrangler.toml`:
-   `*/5 13-21 * * MON-FRI`, and `runPoll`'s ET gate is the authority.
+   `*/5 13-21 * * MON-FRI`, and `runPoll`'s ET gate is the authority. Use day NAMES:
+   Cloudflare counts 1 = Sunday, so `1-5` skipped every Friday (DEFECT-27, 2026-10-16).
 8. **Disabling a rule freezes its open alert** (DEFECT-22). The evaluator only
    reads enabled rules. M6's disable action must close the event in the same
    transaction.
@@ -97,11 +93,16 @@ manual. That is a deliberate scope boundary, not an unfinished feature.
 
 12. **§6.3 — how `fcfRatio` is derived — is genuinely unresolved.** Five candidate
    definitions are ruled out arithmetically in `docs/DEFECTS.md`. Experiment 2 (pull
-   the MSFT/AAPL panels) is unrun and gates the whole Phase 2 valuation engine.
+   the MSFT/AAPL panels) is unrun and gates PBT only (10 Cap and MOS do not use it).
    `fcfPerShare` stays a manual input until it settles.
 13. **SEC EDGAR requires `User-Agent: <name> <email>`** (Phase 2, §6.1). That means
    sending the user's email to an external service. **Needs explicit sign-off before
    any EDGAR call** — never assume it.
+14. **Is the Toolbox's "Buy Price" always PBT?** For GOOGL it equals the MOS price to
+   the cent (401.28) while our seed has 421.50 as PBT. Check GOOGL's calculator
+   panel; if the Toolbox mixes methods, D1's seed labels may be wrong.
+15. **Not yet built from the user's notes:** a shareable monitoring prompt for
+   Nathan, and next-earnings dates on the dashboard.
 
 ---
 
@@ -127,6 +128,8 @@ Asked, not assumed. The code-level ones each have a test that fails if reversed.
 | 2026-09-13 | — **Dark mode stays**, with a warm dark palette *derived* from DESIGN.md (it defines light only). |
 | 2026-09-13 | — **Status uses DESIGN.md's decorative palette as colored glyphs** on white pills (buy green, safe teal, approaching orange, stale deep orange). Blue is for links and focus only. No row tints. |
 | 2026-09-13 | — The **DEMO banner is the deep-indigo band**, the page's single dark moment. |
+| 2026-10-16 | Hosting: **Next.js on Vercel, scheduler on Cloudflare** (AWS EventBridge considered, Cloudflare kept). Vercel env vars Production-only and Sensitive; previews run in DEMO mode. |
+| 2026-10-16 | Phase 2 starts with **AMZN 10 Cap**, per the user's original notes. |
 
 **When a high-level implementation choice comes up, ask. Don't assume** (user, 2026-09-13).
 
