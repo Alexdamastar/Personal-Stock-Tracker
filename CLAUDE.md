@@ -39,7 +39,7 @@ manual. That is a deliberate scope boundary, not an unfinished feature.
 |---|---|
 | **M1 — schema + seed** | **Complete.** 53 tests (PGlite) + 22 checks on real PostgreSQL 18.6. No schema drift. |
 | **M2 — quote provider layer** | **Complete.** 22 tests, injected `fetch`, no network. |
-| **M3 — poller** | **Code complete (2026-10-15), not yet scheduled.** `src/db/poll.ts` (`runPoll`, `isAuthorized`), `POST /api/poll` (bearer `POLL_TOKEN`; 401 / 503 demo / 502 nothing written), `worker/` Cloudflare cron that only calls the route. 10 tests. Verified via `next start` on Neon: 401s and `closed` off-session. **Open:** where the Next app is hosted (the Worker needs a public `POLL_URL`); first live in-session poll; Phase 1 exit gate. |
+| **M3 — poller** | **Live (2026-10-16).** App on Vercel (https://personal-stock-tracker-delta.vercel.app, env vars Production-only), Worker `rule1-poller` deployed on Cloudflare with POLL_URL/POLL_TOKEN secrets, no workers.dev URL, logs on. `src/db/poll.ts` (`runPoll`, `isAuthorized`), `POST /api/poll` (bearer `POLL_TOKEN`; 401 / 503 demo / 502 nothing written), `worker/` Cloudflare cron that only calls the route. 10 tests. Verified via `next start` on Neon: 401s and `closed` off-session. **Open:** confirm first in-session poll in Neon; Phase 1 exit gate (5 trading days); dashboard is public with no password yet (needed before M6). |
 | **M4 — rule evaluator** | **Complete.** 29 tests. Migration 0001 adds `alert_events.threshold`. Verified on PostgreSQL 18.6. |
 | **M5 — dashboard** | **Complete.** 167 tests; spec acceptance passes end to end, including through `next start` on PostgreSQL 18.6. Next.js 16 (webpack). PGlite demo when `DATABASE_URL` is unset. |
 | M6 — history + manual edit | Not started. |

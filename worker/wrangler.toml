@@ -3,6 +3,12 @@
 name = "rule1-poller"
 main = "index.js"
 compatibility_date = "2026-10-01"
+# Cron-only: no fetch handler, so no public URL.
+workers_dev = false
+preview_urls = false
+
+[observability]
+enabled = true
 
 [triggers]
 # 13:00-21:55 UTC Mon-Fri covers 09:30-16:00 ET in both EDT and EST. ~108 fires/day.
