@@ -39,13 +39,13 @@ manual. That is a deliberate scope boundary, not an unfinished feature.
 |---|---|
 | **M1 — schema + seed** | **Complete.** 53 tests (PGlite) + 22 checks on real PostgreSQL 18.6. No schema drift. |
 | **M2 — quote provider layer** | **Complete.** 22 tests, injected `fetch`, no network. |
-| M3 — poller | **Next. Unblocked:** keys and Neon are live; nothing writes `price_ticks` yet. |
+| **M3 — poller** | **Code complete (2026-10-15), not yet scheduled.** `src/db/poll.ts` (`runPoll`, `isAuthorized`), `POST /api/poll` (bearer `POLL_TOKEN`; 401 / 503 demo / 502 nothing written), `worker/` Cloudflare cron that only calls the route. 10 tests. Verified via `next start` on Neon: 401s and `closed` off-session. **Open:** where the Next app is hosted (the Worker needs a public `POLL_URL`); first live in-session poll; Phase 1 exit gate. |
 | **M4 — rule evaluator** | **Complete.** 29 tests. Migration 0001 adds `alert_events.threshold`. Verified on PostgreSQL 18.6. |
 | **M5 — dashboard** | **Complete.** 167 tests; spec acceptance passes end to end, including through `next start` on PostgreSQL 18.6. Next.js 16 (webpack). PGlite demo when `DATABASE_URL` is unset. |
 | M6 — history + manual edit | Not started. |
 | Phase 2 (§6) | Blocked on §6.3 (below). |
 
-`npm test` → 273 passing. `npm run build` → passes. `npx tsc --noEmit` → clean. `npm audit` → 0 high, 0 critical
+`npm test` → 283 passing. `npm run build` → passes. `npx tsc --noEmit` → clean. `npm audit` → 0 high, 0 critical
 (6 moderate, all dev tooling).
 
 ---
@@ -71,7 +71,7 @@ manual. That is a deliberate scope boundary, not an unfinished feature.
 4. ~~Only a throwaway Postgres.~~ **Verified on Neon** (2026-10-15): 33/33 including
    migration 0003, which had never run on real Postgres. Still unexercised: the Neon
    HTTP driver (next item) — the app uses postgres.js over TCP, not HTTP.
-5. **The Neon HTTP driver is a third `db.execute()` result shape** after postgres.js
+5. **(Moot since M3: the Worker calls `/api/poll` over HTTP, so no Neon HTTP driver.)** The Neon HTTP driver is a third `db.execute()` result shape after postgres.js
    and PGlite — the DEFECT-13 class of bug again, and the first real risk in M3.
    `src/db/rows.ts` normalizes the two known shapes; verify the third before trusting
    it. M2 does no database I/O, so it did not exercise this.
@@ -80,14 +80,14 @@ manual. That is a deliberate scope boundary, not an unfinished feature.
    cannot reach it at any daily budget. Decision on 2026-09-09: build for today's 5,
    record the ceiling. `twelveDataBudget()` plus tests #17/#18 make growth past 8 a
    failing build rather than a silent production failure.
-7. **Cloudflare cron is UTC-only** (DEFECT-03) — the ET window moves by an hour twice
-   a year. Widen to `*/5 13-21 * * 1-5` and let the ET gate be the authority.
+7. ~~Cloudflare cron is UTC-only~~ (DEFECT-03) — done in `worker/wrangler.toml`:
+   `*/5 13-21 * * 1-5`, and `runPoll`'s ET gate is the authority.
 8. **Disabling a rule freezes its open alert** (DEFECT-22). The evaluator only
    reads enabled rules. M6's disable action must close the event in the same
    transaction.
 9. **The market calendar ends 2027-12-31** (DEFECT-14, resolved). A tripwire test
    starts failing on **2027-11-01**; add 2028 from nyse.com before then.
-10. **M3's writer has two obligations from M5:** persist `Quote.prevClose` to
+10. ~~M3's writer obligations~~ (done, tested in `tests/m3-poller.test.ts`): persist `Quote.prevClose` to
    `price_ticks.prev_close` (DEFECT-23), and round to 4 dp before the `> 0` check so
    a tiny value becomes `no_data` rather than a failed insert (DEFECT-26).
 11. **Node 22.11 is below jsdom 30's floor.** A conditional vitest flag works around

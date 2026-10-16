@@ -49,6 +49,7 @@ npm run db:migrate
 npm run db:seed
 npm run db:verify     # 33 acceptance checks; use a scratch database
 npx tsx --env-file=.env scripts/quote.ts AAPL   # one live quote; spends provider budget
+curl -X POST -H "authorization: Bearer $POLL_TOKEN" localhost:3000/api/poll   # one poll (M3); {"status":"closed"} off-session
 ```
 
 `db:verify` is the one that covers what PGlite cannot: the `postgres.js`

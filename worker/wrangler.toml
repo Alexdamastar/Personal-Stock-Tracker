@@ -1,0 +1,9 @@
+# Deploy: cd worker && npx wrangler deploy
+# Secrets (never in this file): npx wrangler secret put POLL_URL ; npx wrangler secret put POLL_TOKEN
+name = "rule1-poller"
+main = "index.js"
+compatibility_date = "2026-10-01"
+
+[triggers]
+# 13:00-21:55 UTC Mon-Fri covers 09:30-16:00 ET in both EDT and EST. ~108 fires/day.
+crons = ["*/5 13-21 * * 1-5"]
