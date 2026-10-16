@@ -39,7 +39,7 @@ manual. That is a deliberate scope boundary, not an unfinished feature.
 |---|---|
 | **M1 — schema + seed** | **Complete.** 53 tests (PGlite) + 22 checks on real PostgreSQL 18.6. No schema drift. |
 | **M2 — quote provider layer** | **Complete.** 22 tests, injected `fetch`, no network. |
-| M3 — poller | **Next.** Blocked on API keys and a hosted database (see below). |
+| M3 — poller | **Next. Unblocked:** keys and Neon are live; nothing writes `price_ticks` yet. |
 | **M4 — rule evaluator** | **Complete.** 29 tests. Migration 0001 adds `alert_events.threshold`. Verified on PostgreSQL 18.6. |
 | **M5 — dashboard** | **Complete.** 167 tests; spec acceptance passes end to end, including through `next start` on PostgreSQL 18.6. Next.js 16 (webpack). PGlite demo when `DATABASE_URL` is unset. |
 | M6 — history + manual edit | Not started. |
@@ -54,11 +54,12 @@ manual. That is a deliberate scope boundary, not an unfinished feature.
 
 ### Blocking, and not fixable in code
 
-1. **No API keys.** `.env` does not exist. M2 is fully tested against an injected
-   `fetch`, but M3 cannot poll anything real until there is a Finnhub key and a
-   Twelve Data key. Both are free signups. `.env.example` lists what is needed.
-2. **No hosted database.** Neon/Supabase has never been touched. Everything so far
-   ran against PGlite and a throwaway Docker container.
+1. ~~No API keys.~~ **Live (2026-10-15).** `.env` holds both; `npx tsx --env-file=.env
+   scripts/quote.ts AAPL META GOOGL MSFT AMZN` returned 5/5 from Finnhub with previous
+   closes, no failover. `.env` is gitignored and must stay that way.
+2. ~~No hosted database.~~ **Neon, live (2026-10-15).** Migrations 0000-0003 applied,
+   §4 seeded, `db:verify` 33/33, and the dashboard renders against it with no DEMO
+   banner. `.env` uses the POOLED endpoint. Free tier suspends after ~5 min idle.
 3. ~~No remote.~~ **Pushed.** `origin` is
    github.com/Alexdamastar/Personal-Stock-Tracker; `master` matches it. Note there is
    no local `origin/master` ref, so `git status` cannot show ahead/behind until a
@@ -67,9 +68,9 @@ manual. That is a deliberate scope boundary, not an unfinished feature.
 
 ### Known risks, already understood
 
-4. **Only a throwaway Postgres has been used.** `db:verify` passes 33/33 on
-   PostgreSQL 18.6 via postgres.js, and database mode renders through `next start`
-   (2026-09-13). No hosted database (Neon/Supabase) has been touched.
+4. ~~Only a throwaway Postgres.~~ **Verified on Neon** (2026-10-15): 33/33 including
+   migration 0003, which had never run on real Postgres. Still unexercised: the Neon
+   HTTP driver (next item) — the app uses postgres.js over TCP, not HTTP.
 5. **The Neon HTTP driver is a third `db.execute()` result shape** after postgres.js
    and PGlite — the DEFECT-13 class of bug again, and the first real risk in M3.
    `src/db/rows.ts` normalizes the two known shapes; verify the third before trusting

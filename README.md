@@ -48,6 +48,7 @@ export DATABASE_URL='postgres://user:pass@host/db'
 npm run db:migrate
 npm run db:seed
 npm run db:verify     # 33 acceptance checks; use a scratch database
+npx tsx --env-file=.env scripts/quote.ts AAPL   # one live quote; spends provider budget
 ```
 
 `db:verify` is the one that covers what PGlite cannot: the `postgres.js`
